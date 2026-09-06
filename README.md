@@ -16,7 +16,8 @@ usando Chromecast built-in (Google Cast).
 3. "📡 Castear" usa el SDK de Google Cast para conectar con tu TV (deben estar en la misma red
    WiFi) y controlar la reproducción de forma remota (play/pausa, volumen, subtítulos, buscar en la
    línea de tiempo). "▶ Reproducir" reproduce el vídeo directamente en el navegador con el
-   `<video>` nativo (con botón de pantalla completa) — útil para ver algo rápido sin encender la TV
+   `<video>` nativo del navegador (con controles que incluyen pantalla completa) — útil para ver
+   algo rápido sin encender la TV
    (ver [Reproducción local en el navegador](#reproducción-local-en-el-navegador)).
 4. Si el vídeo ya es compatible con el destino (Chromecast o el propio navegador — no siempre es
    lo mismo, ver más abajo), se envía tal cual. Si no (por ejemplo un `.mkv`), el servidor lo
@@ -57,7 +58,8 @@ a castear.
 ## Reproducción local en el navegador
 
 El botón "▶ Reproducir" reproduce el vídeo directamente en tu navegador (sin pasar por la TV), con
-los controles nativos del `<video>` más un botón de pantalla completa.
+los controles nativos del `<video>` del navegador — incluida la pantalla completa, sin necesidad de
+un botón aparte.
 
 **Nota sobre códecs (HEVC/H.265):** Chromecast/Google TV decodifica HEVC en hardware sin problema,
 así que un archivo en HEVC se envía tal cual a la TV. La mayoría de navegadores de escritorio
@@ -67,6 +69,17 @@ pero la imagen se queda en negro. Por eso el servidor mantiene, además de la ca
 TV, una caché **independiente** para reproducción en navegador: si el vídeo no está ya en H.264, lo
 transcodifica a H.264 la primera vez que le das a "Reproducir" (puede tardar unos segundos, verás
 "Preparando vídeo…") y lo cachea aparte, sin tocar el archivo que se le sirve a la TV.
+
+**Preparar con antelación:** como esa primera transcodificación puede tardar, cada miniatura de la
+biblioteca tiene un botón en la esquina superior izquierda para lanzarla de antemano, sin necesidad
+de abrir el popup de "Reproducir" — útil para dejar varios vídeos listos con tiempo antes de verlos
+(por ejemplo desde el móvil, antes de un viaje). El icono indica el estado de ese vídeo para
+reproducción en navegador:
+
+- ⬇️ (botón activo) — aún no está listo; un clic empieza a prepararlo.
+- ⏳ — se está preparando ahora mismo.
+- ✅ (tick verde) — ya está listo para reproducirse al instante, sin transcodificar (porque ya es
+  H.264/VP8/VP9, o porque ya se preparó antes y sigue en caché).
 
 ## Eliminar vídeos
 

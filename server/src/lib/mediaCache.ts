@@ -45,6 +45,39 @@ function isBrowserDirectPlayable(entry: VideoEntry): boolean {
   return false;
 }
 
+/**
+ * True when a video can be streamed to a local <video> element right now,
+ * with no wait: either it doesn't need any processing for the browser at
+ * all (isBrowserDirectPlayable), or a previous prepare/play already left
+ * its browser-targeted remux/transcode sitting in the cache. This is a
+ * plain disk check — it never runs ffmpeg — so it's cheap enough to call
+ * for every video when building the library listing (see library.ts
+ * toDTO), which is how the client knows to show a ready checkmark instead
+ * of the "prepare" button without having to ask separately per video.
+ */
+export function isBrowserReady(entry: VideoEntry): boolean {
+  if (isBrowserDirectPlayable(entry)) return true;
+  const cachedPath = path.join(config.cacheDir, `${cacheKey(entry)}-browser.mp4`);
+  return existsSync(cachedPath);
+}
+
+/**
+ * Removes just the cached browser remux/transcode for a video (the
+ * "-browser.mp4" file getPlayablePath(entry, "browser") produces and
+ * reuses), leaving its Chromecast remux, subtitles and thumbnail alone.
+ * Used by the library grid's ready checkmark: clicking it un-prepares the
+ * video — handy to reclaim disk space, or to force a fresh transcode later
+ * (e.g. after changing something upstream). A no-op for a video that never
+ * needed a cache file to begin with (isBrowserDirectPlayable) — there's
+ * nothing on disk to remove, so it stays ready either way.
+ */
+export async function deleteBrowserCache(entry: VideoEntry): Promise<{ removed: boolean }> {
+  const cachedPath = path.join(config.cacheDir, `${cacheKey(entry)}-browser.mp4`);
+  if (!existsSync(cachedPath)) return { removed: false };
+  await fs.rm(cachedPath, { force: true });
+  return { removed: true };
+}
+
 function runFfmpeg(args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const proc = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });

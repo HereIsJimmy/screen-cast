@@ -62,22 +62,6 @@ function applySubtitleSelection() {
 
 watch(selectedSubtitle, applySubtitleSelection);
 
-// iOS Safari doesn't implement the standard Fullscreen API on arbitrary
-// elements, but it does support the older, video-specific
-// webkitEnterFullscreen() — fall back to that when the standard API isn't
-// available on the element.
-function toggleFullscreen() {
-  const el = videoEl.value as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
-  if (!el) return;
-  if (document.fullscreenElement) {
-    document.exitFullscreen().catch(() => {});
-  } else if (el.requestFullscreen) {
-    el.requestFullscreen().catch(() => {});
-  } else if (el.webkitEnterFullscreen) {
-    el.webkitEnterFullscreen();
-  }
-}
-
 async function handleDelete() {
   if (!video.value) return;
   deleting.value = true;
@@ -107,7 +91,6 @@ onMounted(load);
   <div v-else-if="video" class="player-card">
     <div class="modal-title-row">
       <h2>{{ video.title }}</h2>
-      <button class="btn danger" type="button" @click="showDeleteConfirm = true">🗑 Eliminar</button>
     </div>
 
     <video
@@ -125,34 +108,11 @@ onMounted(load);
         :key="sub.index"
         :id="String(sub.index)"
         kind="subtitles"
-        :src="relativeMediaUrl(subtitlePath(video.id, sub.index))"
+        :src="relativeMediaUrl(subtitlePath(video.id, sub.index, { forBrowser: true }))"
         :srclang="sub.language || 'und'"
         :label="sub.title || sub.language || `Pista ${sub.index + 1}`"
       />
     </video>
-
-    <div v-if="ready" class="controls-row">
-      <button class="btn secondary" type="button" @click="toggleFullscreen">
-        <svg
-          class="icon"
-          viewBox="0 0 24 24"
-          width="16"
-          height="16"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <polyline points="8 3 3 3 3 8"></polyline>
-          <polyline points="16 3 21 3 21 8"></polyline>
-          <polyline points="3 16 3 21 8 21"></polyline>
-          <polyline points="16 21 21 21 21 16"></polyline>
-        </svg>
-        <span class="btn-label">Pantalla completa</span>
-      </button>
-    </div>
 
     <div v-if="supportedSubtitles.length > 0" class="controls-row">
       <select v-model="selectedSubtitle">
@@ -165,6 +125,29 @@ onMounted(load);
       <span v-if="video.subtitles.some((s) => s.unsupported)" class="badge warn">
         Este vídeo tiene subtítulos en formato de imagen (no se pueden mostrar)
       </span>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn danger modal-delete-btn" type="button" @click="showDeleteConfirm = true">
+        <svg
+          class="icon"
+          viewBox="0 0 24 24"
+          width="16"
+          height="16"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <polyline points="3 6 5 6 21 6"></polyline>
+          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          <line x1="10" y1="11" x2="10" y2="17"></line>
+          <line x1="14" y1="11" x2="14" y2="17"></line>
+        </svg>
+        <span class="btn-label">Eliminar</span>
+      </button>
     </div>
   </div>
 

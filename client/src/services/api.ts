@@ -45,6 +45,12 @@ export function prepareVideo(id: string, opts?: { forBrowser?: boolean }): Promi
   return request(`/videos/${id}/prepare${suffix}`, { method: "POST" });
 }
 
+/** Deletes a video's cached browser remux, undoing prepareVideo({ forBrowser: true }). */
+export function deletePreparedVideo(id: string, opts?: { forBrowser?: boolean }): Promise<{ removed: boolean }> {
+  const suffix = opts?.forBrowser ? "?target=browser" : "";
+  return request(`/videos/${id}/prepared${suffix}`, { method: "DELETE" });
+}
+
 /**
  * Builds an absolute URL to a resource on this API, using the server's LAN
  * IP rather than the browser's current origin. The TV needs an address it
@@ -67,8 +73,9 @@ export function videoStreamPath(id: string, opts?: { forBrowser?: boolean }): st
   return `/videos/${id}/stream${suffix}`;
 }
 
-export function subtitlePath(id: string, index: number): string {
-  return `/videos/${id}/subtitles/${index}.vtt`;
+export function subtitlePath(id: string, index: number, opts?: { forBrowser?: boolean }): string {
+  const suffix = opts?.forBrowser ? "?target=browser" : "";
+  return `/videos/${id}/subtitles/${index}.vtt${suffix}`;
 }
 
 /** Relative URL for a video's thumbnail — same-origin, so no need for toAbsoluteMediaUrl here. */

@@ -38,6 +38,8 @@ export interface VideoDTO {
   audioCodec: string | null;
   contentType: string;
   needsProcessing: boolean;
+  /** True when this video can be streamed to a local <video> element right now, with no wait. */
+  browserReady: boolean;
   subtitles: {
     index: number;
     language?: string;

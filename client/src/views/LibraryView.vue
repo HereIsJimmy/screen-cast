@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { deleteVideo, fetchLibrary, fetchServerInfo, rescanLibrary, thumbnailUrl } from "@/services/api";
+import {
+  deletePreparedVideo,
+  deleteVideo,
+  fetchLibrary,
+  fetchServerInfo,
+  prepareVideo,
+  rescanLibrary,
+  thumbnailUrl,
+} from "@/services/api";
 import type { VideoDTO } from "@/types";
 import Modal from "@/components/Modal.vue";
 import ConfirmDialog from "@/components/ConfirmDialog.vue";
@@ -118,6 +126,50 @@ function formatDuration(sec: number | null): string {
   const h = Math.floor(sec / 3600);
   const m = Math.floor((sec % 3600) / 60);
   return h > 0 ? `${h}h ${m}min` : `${m}min`;
+}
+
+// Ids currently being remuxed/transcoded for browser playback ahead of
+// time, via the thumbnail's "prepare" button — so its icon can switch to an
+// hourglass while the request is in flight, without waiting for someone to
+// actually open the Reproducir popup first.
+const preparingVideos = reactive(new Set<string>());
+
+async function prepareForBrowser(video: VideoDTO) {
+  if (video.browserReady || preparingVideos.has(video.id)) return;
+  preparingVideos.add(video.id);
+  error.value = null;
+  try {
+    await prepareVideo(video.id, { forBrowser: true });
+    // Optimistic update — video.browserReady would otherwise only refresh on
+    // the next /api/library fetch (a manual rescan), so the tick wouldn't
+    // show up until then even though the file is already sitting in cache.
+    video.browserReady = true;
+  } catch (err) {
+    error.value = (err as Error).message;
+  } finally {
+    preparingVideos.delete(video.id);
+  }
+}
+
+// Ids currently having their cached browser remux deleted, via a click on
+// the ready checkmark — mirrors preparingVideos above.
+const removingBrowserCache = reactive(new Set<string>());
+
+async function removeBrowserCache(video: VideoDTO) {
+  if (removingBrowserCache.has(video.id)) return;
+  removingBrowserCache.add(video.id);
+  error.value = null;
+  try {
+    const { removed } = await deletePreparedVideo(video.id, { forBrowser: true });
+    // Nothing to flip back to the "prepare" button for a video that never
+    // needed a cache file in the first place (it plays directly) — the
+    // server reports removed:false and it just stays ready.
+    if (removed) video.browserReady = false;
+  } catch (err) {
+    error.value = (err as Error).message;
+  } finally {
+    removingBrowserCache.delete(video.id);
+  }
 }
 
 // Deleting a video can be triggered from the trash icon on a thumbnail
@@ -288,6 +340,64 @@ onBeforeUnmount(() => {
             />
             <div v-else class="video-thumb-placeholder">🎬</div>
             <span v-if="video.durationSec" class="thumb-duration">{{ formatDuration(video.durationSec) }}</span>
+            <button
+              v-if="video.browserReady"
+              class="thumb-ready"
+              type="button"
+              :disabled="removingBrowserCache.has(video.id)"
+              :title="
+                removingBrowserCache.has(video.id)
+                  ? 'Eliminando copia cacheada…'
+                  : 'Listo para reproducir en el navegador — clic para eliminar la copia cacheada'
+              "
+              :aria-label="
+                removingBrowserCache.has(video.id)
+                  ? 'Eliminando copia cacheada'
+                  : 'Listo para reproducir en el navegador, eliminar copia cacheada'
+              "
+              @click.stop="removeBrowserCache(video)"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                width="15"
+                height="15"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+            </button>
+            <button
+              v-else
+              class="thumb-prepare"
+              type="button"
+              :disabled="preparingVideos.has(video.id)"
+              :title="preparingVideos.has(video.id) ? 'Preparando para el navegador…' : 'Preparar para reproducir en el navegador'"
+              :aria-label="preparingVideos.has(video.id) ? 'Preparando para el navegador' : 'Preparar para reproducir en el navegador'"
+              @click.stop="prepareForBrowser(video)"
+            >
+              <span v-if="preparingVideos.has(video.id)" class="thumb-prepare-hourglass" aria-hidden="true">⏳</span>
+              <svg
+                v-else
+                viewBox="0 0 24 24"
+                width="15"
+                height="15"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+            </button>
             <button
               class="thumb-delete"
               type="button"

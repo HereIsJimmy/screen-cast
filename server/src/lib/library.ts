@@ -4,7 +4,7 @@ import path from "node:path";
 import { config } from "../config.js";
 import type { SubtitleTrackInfo, VideoEntry, VideoDTO } from "../types.js";
 import { probeFile } from "./ffprobe.js";
-import { deleteCacheForId, pruneOrphanedCache } from "./mediaCache.js";
+import { deleteCacheForId, isBrowserReady, pruneOrphanedCache } from "./mediaCache.js";
 
 const UNSUPPORTED_SUBTITLE_CODECS = new Set([
   "hdmv_pgs_subtitle",
@@ -62,19 +62,33 @@ function getCutoffMs(months: number): number {
   return d.getTime();
 }
 
-async function walk(dir: string, root: string, out: { absolutePath: string; relativePath: string }[]): Promise<void> {
+/**
+ * Walks one media root, collecting video files into `out`. Returns
+ * `ok: false` when this directory (or any subdirectory) couldn't be read —
+ * distinct from "read fine, just no video files in it" — so doScan can
+ * tell a genuinely empty folder apart from one that's temporarily
+ * unreachable (e.g. a network drive not mounted yet) and knows not to
+ * treat the latter as "these videos were deleted".
+ */
+async function walk(
+  dir: string,
+  root: string,
+  out: { absolutePath: string; relativePath: string }[]
+): Promise<{ ok: boolean }> {
   let dirents;
   try {
     dirents = await fs.readdir(dir, { withFileTypes: true });
   } catch (err) {
     console.warn(`[library] No se pudo leer la carpeta ${dir}:`, (err as Error).message);
-    return;
+    return { ok: false };
   }
 
+  let ok = true;
   for (const dirent of dirents) {
     const fullPath = path.join(dir, dirent.name);
     if (dirent.isDirectory()) {
-      await walk(fullPath, root, out);
+      const sub = await walk(fullPath, root, out);
+      if (!sub.ok) ok = false;
     } else if (dirent.isFile()) {
       const ext = path.extname(dirent.name).toLowerCase();
       if (config.videoExtensions.includes(ext)) {
@@ -82,6 +96,7 @@ async function walk(dir: string, root: string, out: { absolutePath: string; rela
       }
     }
   }
+  return { ok };
 }
 
 type BuildResult =
@@ -199,9 +214,14 @@ async function doScan(options: ScanOptions): Promise<ScanResult> {
   const cutoffMs = includeOld ? null : getCutoffMs(config.recentMonths);
 
   const found: { absolutePath: string; relativePath: string; mediaRoot: string }[] = [];
+  // Tracks whether every configured media root was actually readable this
+  // time around — see the comment on pruneOrphanedCache below for why this
+  // gates the cache cleanup.
+  let allRootsReadable = true;
   for (const root of config.mediaDirs) {
     const collected: { absolutePath: string; relativePath: string }[] = [];
-    await walk(root, root, collected);
+    const { ok } = await walk(root, root, collected);
+    if (!ok) allRootsReadable = false;
     for (const item of collected) found.push({ ...item, mediaRoot: root });
   }
 
@@ -245,13 +265,27 @@ async function doScan(options: ScanOptions): Promise<ScanResult> {
   // MEDIA_DIRS — would otherwise sit in server/.cache forever, since
   // nothing else ever revisits it. Best-effort: a scan that found videos
   // fine shouldn't fail just because this cleanup couldn't run.
-  try {
-    const { removed } = await pruneOrphanedCache(new Set(entries.keys()));
-    if (removed > 0) {
-      console.log(`[library] Caché: ${removed} archivo(s) de vídeos ya no presentes en la biblioteca eliminado(s).`);
+  //
+  // Only do this when every configured root was actually readable this
+  // scan: if one was temporarily unreachable (network drive not mounted
+  // yet, permissions hiccup, etc.), its videos vanish from `entries` too —
+  // but that doesn't mean they were deleted, so treating them as orphans
+  // and wiping their cache would be wrong (and, for a large library,
+  // expensive to regenerate for no reason).
+  if (config.mediaDirs.length > 0 && allRootsReadable) {
+    try {
+      const { removed } = await pruneOrphanedCache(new Set(entries.keys()));
+      if (removed > 0) {
+        console.log(`[library] Caché: ${removed} archivo(s) de vídeos ya no presentes en la biblioteca eliminado(s).`);
+      }
+    } catch (err) {
+      console.warn("[library] No se pudo limpiar la caché de vídeos eliminados:", (err as Error).message);
     }
-  } catch (err) {
-    console.warn("[library] No se pudo limpiar la caché de vídeos eliminados:", (err as Error).message);
+  } else if (config.mediaDirs.length > 0) {
+    console.warn(
+      "[library] Se ha omitido la limpieza de caché de vídeos eliminados: no se pudieron leer todas las " +
+        "carpetas de MEDIA_DIRS en este escaneo (podrían estar temporalmente inaccesibles)."
+    );
   }
 
   lastScanIncludedOld = includeOld;
@@ -336,6 +370,7 @@ export function toDTO(entry: VideoEntry): VideoDTO {
     audioCodec: entry.audioCodec,
     contentType: getStreamContentType(entry),
     needsProcessing: !entry.directPlayCompatible,
+    browserReady: isBrowserReady(entry),
     subtitles: entry.subtitles.map((s) => ({
       index: s.index,
       language: s.language,
