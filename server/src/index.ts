@@ -8,6 +8,7 @@ import express from "express";
 import { config } from "./config.js";
 import { checkFfmpegAvailable, checkFfprobeAvailable } from "./lib/ffprobe.js";
 import { scanLibrary } from "./lib/library.js";
+import { pruneStaleCache } from "./lib/mediaCache.js";
 import { getLanIp } from "./lib/networkInfo.js";
 import { libraryRouter } from "./routes/library.js";
 import { streamRouter } from "./routes/stream.js";
@@ -24,6 +25,17 @@ async function main() {
       "[startup] No se encuentra ffmpeg/ffprobe en el PATH. Instálalo (ver README) — " +
         "sin él no se puede leer metadata de los vídeos ni extraer subtítulos."
     );
+  }
+
+  // Clear out cached remuxes from previous runs before serving anything —
+  // see pruneStaleCache's own comment for why only today's .mp4s survive.
+  try {
+    const { removed } = await pruneStaleCache();
+    if (removed > 0) {
+      console.log(`[startup] Caché de vídeo: ${removed} archivo(s) antiguo(s) eliminado(s).`);
+    }
+  } catch (err) {
+    console.warn("[startup] No se pudo limpiar la caché de vídeo:", (err as Error).message);
   }
 
   const app = express();

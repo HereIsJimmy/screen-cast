@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { fetchVideo, prepareVideo, relativeMediaUrl, subtitlePath, videoStreamPath } from "@/services/api";
+import { deleteVideo, fetchVideo, prepareVideo, relativeMediaUrl, subtitlePath, videoStreamPath } from "@/services/api";
 import type { VideoDTO } from "@/types";
+import ConfirmDialog from "@/components/ConfirmDialog.vue";
+
+const emit = defineEmits<{ deleted: [id: string] }>();
 
 const route = useRoute();
 const router = useRouter();
@@ -14,6 +17,9 @@ const error = ref<string | null>(null);
 const ready = ref(false);
 const videoEl = ref<HTMLVideoElement | null>(null);
 const selectedSubtitle = ref<number | "">("");
+const showDeleteConfirm = ref(false);
+const deleting = ref(false);
+const deleteError = ref<string | null>(null);
 
 const videoId = computed(() => String(route.params.id));
 
@@ -34,7 +40,7 @@ async function load() {
     // here and show "Preparando…" instead of leaving a native <video> stuck
     // spinning with no explanation.
     preparing.value = true;
-    await prepareVideo(v.id);
+    await prepareVideo(v.id, { forBrowser: true });
     ready.value = true;
   } catch (err) {
     error.value = (err as Error).message;
@@ -56,59 +62,119 @@ function applySubtitleSelection() {
 
 watch(selectedSubtitle, applySubtitleSelection);
 
-function goBack() {
-  router.push({ name: "library" });
+// iOS Safari doesn't implement the standard Fullscreen API on arbitrary
+// elements, but it does support the older, video-specific
+// webkitEnterFullscreen() — fall back to that when the standard API isn't
+// available on the element.
+function toggleFullscreen() {
+  const el = videoEl.value as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
+  if (!el) return;
+  if (document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {});
+  } else if (el.requestFullscreen) {
+    el.requestFullscreen().catch(() => {});
+  } else if (el.webkitEnterFullscreen) {
+    el.webkitEnterFullscreen();
+  }
+}
+
+async function handleDelete() {
+  if (!video.value) return;
+  deleting.value = true;
+  deleteError.value = null;
+  try {
+    videoEl.value?.pause();
+    const deletedId = video.value.id;
+    await deleteVideo(deletedId);
+    showDeleteConfirm.value = false;
+    emit("deleted", deletedId);
+    router.push({ name: "library" });
+  } catch (err) {
+    deleteError.value = (err as Error).message;
+  } finally {
+    deleting.value = false;
+  }
 }
 
 onMounted(load);
 </script>
 
 <template>
-  <div class="container">
-    <header class="app-header">
-      <button class="btn secondary" @click="goBack">← Biblioteca</button>
-    </header>
+  <p v-if="error" class="error-box">{{ error }}</p>
 
-    <p v-if="error" class="error-box">{{ error }}</p>
+  <div v-if="loading" class="empty-state">{{ preparing ? "Preparando vídeo…" : "Cargando…" }}</div>
 
-    <div v-if="loading" class="empty-state">{{ preparing ? "Preparando vídeo…" : "Cargando…" }}</div>
-
-    <div v-else-if="video" class="player-card">
+  <div v-else-if="video" class="player-card">
+    <div class="modal-title-row">
       <h2>{{ video.title }}</h2>
+      <button class="btn danger" type="button" @click="showDeleteConfirm = true">🗑 Eliminar</button>
+    </div>
 
-      <video
-        v-if="ready"
-        ref="videoEl"
-        class="watch-video"
-        :src="relativeMediaUrl(videoStreamPath(video.id))"
-        controls
-        autoplay
-        playsinline
-        @loadedmetadata="applySubtitleSelection"
-      >
-        <track
-          v-for="sub in supportedSubtitles"
-          :key="sub.index"
-          :id="String(sub.index)"
-          kind="subtitles"
-          :src="relativeMediaUrl(subtitlePath(video.id, sub.index))"
-          :srclang="sub.language || 'und'"
-          :label="sub.title || sub.language || `Pista ${sub.index + 1}`"
-        />
-      </video>
+    <video
+      v-if="ready"
+      ref="videoEl"
+      class="watch-video"
+      :src="relativeMediaUrl(videoStreamPath(video.id, { forBrowser: true }))"
+      controls
+      autoplay
+      playsinline
+      @loadedmetadata="applySubtitleSelection"
+    >
+      <track
+        v-for="sub in supportedSubtitles"
+        :key="sub.index"
+        :id="String(sub.index)"
+        kind="subtitles"
+        :src="relativeMediaUrl(subtitlePath(video.id, sub.index))"
+        :srclang="sub.language || 'und'"
+        :label="sub.title || sub.language || `Pista ${sub.index + 1}`"
+      />
+    </video>
 
-      <div v-if="supportedSubtitles.length > 0" class="controls-row">
-        <select v-model="selectedSubtitle">
-          <option value="">Sin subtítulos</option>
-          <option v-for="sub in supportedSubtitles" :key="sub.index" :value="sub.index">
-            {{ sub.title || sub.language || `Pista ${sub.index + 1}` }}
-          </option>
-        </select>
+    <div v-if="ready" class="controls-row">
+      <button class="btn secondary" type="button" @click="toggleFullscreen">
+        <svg
+          class="icon"
+          viewBox="0 0 24 24"
+          width="16"
+          height="16"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <polyline points="8 3 3 3 3 8"></polyline>
+          <polyline points="16 3 21 3 21 8"></polyline>
+          <polyline points="3 16 3 21 8 21"></polyline>
+          <polyline points="16 21 21 21 21 16"></polyline>
+        </svg>
+        <span class="btn-label">Pantalla completa</span>
+      </button>
+    </div>
 
-        <span v-if="video.subtitles.some((s) => s.unsupported)" class="badge warn">
-          Este vídeo tiene subtítulos en formato de imagen (no se pueden mostrar)
-        </span>
-      </div>
+    <div v-if="supportedSubtitles.length > 0" class="controls-row">
+      <select v-model="selectedSubtitle">
+        <option value="">Sin subtítulos</option>
+        <option v-for="sub in supportedSubtitles" :key="sub.index" :value="sub.index">
+          {{ sub.title || sub.language || `Pista ${sub.index + 1}` }}
+        </option>
+      </select>
+
+      <span v-if="video.subtitles.some((s) => s.unsupported)" class="badge warn">
+        Este vídeo tiene subtítulos en formato de imagen (no se pueden mostrar)
+      </span>
     </div>
   </div>
+
+  <ConfirmDialog
+    v-if="showDeleteConfirm"
+    title="Eliminar vídeo"
+    :message="`Se eliminará «${video?.title}» y todos sus archivos en caché. Esta acción no se puede deshacer.`"
+    :busy="deleting"
+    :error="deleteError"
+    @confirm="handleDelete"
+    @close="showDeleteConfirm = false"
+  />
 </template>

@@ -4,6 +4,7 @@ import path from "node:path";
 import { config } from "../config.js";
 import type { SubtitleTrackInfo, VideoEntry, VideoDTO } from "../types.js";
 import { probeFile } from "./ffprobe.js";
+import { deleteCacheForId, pruneOrphanedCache } from "./mediaCache.js";
 
 const UNSUPPORTED_SUBTITLE_CODECS = new Set([
   "hdmv_pgs_subtitle",
@@ -239,6 +240,20 @@ async function doScan(options: ScanOptions): Promise<ScanResult> {
     if (!seenIds.has(id)) entries.delete(id);
   }
 
+  // Anything cached (remux, subtitles, thumbnail) for a video that's no
+  // longer in the index at all — deleted, renamed, or moved out of
+  // MEDIA_DIRS — would otherwise sit in server/.cache forever, since
+  // nothing else ever revisits it. Best-effort: a scan that found videos
+  // fine shouldn't fail just because this cleanup couldn't run.
+  try {
+    const { removed } = await pruneOrphanedCache(new Set(entries.keys()));
+    if (removed > 0) {
+      console.log(`[library] Caché: ${removed} archivo(s) de vídeos ya no presentes en la biblioteca eliminado(s).`);
+    }
+  } catch (err) {
+    console.warn("[library] No se pudo limpiar la caché de vídeos eliminados:", (err as Error).message);
+  }
+
   lastScanIncludedOld = includeOld;
 
   return { count: entries.size, errors, skipped, includesOld: includeOld };
@@ -271,6 +286,31 @@ export function listEntries(): VideoEntry[] {
 
 export function getEntry(id: string): VideoEntry | undefined {
   return entries.get(id);
+}
+
+/**
+ * Deletes a video for good: removes the original file from disk, drops it
+ * from the in-memory index, and clears every cached file generated for it
+ * (remux, browser remux, subtitles, thumbnail) right away — rather than
+ * waiting for the next scan's orphan cleanup to notice it's gone.
+ * Irreversible; the client is expected to have the user confirm first.
+ */
+export async function deleteVideo(id: string): Promise<void> {
+  const entry = entries.get(id);
+  if (!entry) {
+    throw new Error("Vídeo no encontrado");
+  }
+
+  try {
+    await fs.unlink(entry.absolutePath);
+  } catch (err) {
+    // Already gone from disk (e.g. removed outside the app) — still finish
+    // dropping it from the index/cache rather than leaving it stuck.
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+
+  entries.delete(id);
+  await deleteCacheForId(id);
 }
 
 /**

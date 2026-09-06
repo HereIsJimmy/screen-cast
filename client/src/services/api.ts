@@ -19,6 +19,11 @@ export function fetchVideo(id: string): Promise<VideoDTO> {
   return request(`/videos/${id}`);
 }
 
+/** Deletes a video for good — removes the file on disk and its cached files. */
+export function deleteVideo(id: string): Promise<{ deleted: boolean }> {
+  return request(`/videos/${id}`, { method: "DELETE" });
+}
+
 /**
  * Re-scans the media folders. `includeOld` controls whether videos older
  * than the configured "recent" window are probed and indexed too (slower,
@@ -35,8 +40,9 @@ export function fetchServerInfo(): Promise<ServerInfo> {
   return request("/server-info");
 }
 
-export function prepareVideo(id: string): Promise<{ ready: boolean }> {
-  return request(`/videos/${id}/prepare`, { method: "POST" });
+export function prepareVideo(id: string, opts?: { forBrowser?: boolean }): Promise<{ ready: boolean }> {
+  const suffix = opts?.forBrowser ? "?target=browser" : "";
+  return request(`/videos/${id}/prepare${suffix}`, { method: "POST" });
 }
 
 /**
@@ -50,8 +56,15 @@ export function toAbsoluteMediaUrl(serverInfo: ServerInfo, path: string): string
   return `${serverInfo.protocol}://${serverInfo.ip}:${serverInfo.port}/api${path}`;
 }
 
-export function videoStreamPath(id: string): string {
-  return `/videos/${id}/stream`;
+/**
+ * `forBrowser: true` asks the server for a stream this browser's own
+ * <video> element can actually decode — notably, HEVC/H.265 plays fine on
+ * Chromecast but not in most desktop browsers, so local playback needs a
+ * separately-transcoded stream from the one handed to the Cast SDK.
+ */
+export function videoStreamPath(id: string, opts?: { forBrowser?: boolean }): string {
+  const suffix = opts?.forBrowser ? "?target=browser" : "";
+  return `/videos/${id}/stream${suffix}`;
 }
 
 export function subtitlePath(id: string, index: number): string {

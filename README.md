@@ -8,15 +8,23 @@ usando Chromecast built-in (Google Cast).
 
 1. El servidor escanea una o varias carpetas de tu PC en busca de vídeos y lee sus metadatos
    (duración, códecs, pistas de subtítulos) con `ffprobe`.
-2. La web (Vue) lista tu biblioteca. Al pulsar "Castear", el navegador usa el SDK de Google Cast
-   para conectar con tu TV (deben estar en la misma red WiFi).
-3. Si el vídeo ya es compatible con Chromecast (MP4/H.264+AAC o WebM/VP8-VP9+Opus), se envía tal
-   cual. Si no (por ejemplo un `.mkv`), el servidor lo reempaqueta (remux, sin recodificar) a MP4
-   la primera vez y lo cachea en disco.
-4. Como tus subtítulos están incrustados en el contenedor y no en archivos `.srt` sueltos, el
+2. La web (Vue) lista tu biblioteca. Cada vídeo tiene dos botones: "📡 Castear" y "▶ Reproducir".
+   Los dos abren un popup sobre la propia biblioteca en vez de navegar a una página aparte, pero la
+   URL sigue cambiando (`/play/:id` o `/ver/:id`) — así que puedes recargar la página o compartir
+   ese enlace: si entras directamente por esa URL, primero se carga la biblioteca y el popup
+   correspondiente se abre solo en cuanto está lista.
+3. "📡 Castear" usa el SDK de Google Cast para conectar con tu TV (deben estar en la misma red
+   WiFi) y controlar la reproducción de forma remota (play/pausa, volumen, subtítulos, buscar en la
+   línea de tiempo). "▶ Reproducir" reproduce el vídeo directamente en el navegador con el
+   `<video>` nativo (con botón de pantalla completa) — útil para ver algo rápido sin encender la TV
+   (ver [Reproducción local en el navegador](#reproducción-local-en-el-navegador)).
+4. Si el vídeo ya es compatible con el destino (Chromecast o el propio navegador — no siempre es
+   lo mismo, ver más abajo), se envía tal cual. Si no (por ejemplo un `.mkv`), el servidor lo
+   reempaqueta (remux, sin recodificar) o recodifica a MP4 la primera vez y lo cachea en disco.
+5. Como tus subtítulos están incrustados en el contenedor y no en archivos `.srt` sueltos, el
    servidor extrae cada pista de subtítulos a WebVTT (`.vtt`) con `ffmpeg` la primera vez que se
-   pide, y la sirve como pista de texto aparte — así el receptor de Cast la puede pintar sobre el
-   vídeo.
+   pide, y la sirve como pista de texto aparte — así el receptor de Cast (o el propio navegador)
+   la puede pintar sobre el vídeo.
 
 ## Filtro de "vídeos recientes"
 
@@ -45,6 +53,46 @@ viaja por la API de estilo de Cast (que no tiene noción de posición) — el se
 ajuste `line:` de cada cue al servir el archivo `.vtt`, así que a diferencia del resto del estilo
 no se actualiza en caliente: se aplica la próxima vez que cambias de pista de subtítulos o vuelves
 a castear.
+
+## Reproducción local en el navegador
+
+El botón "▶ Reproducir" reproduce el vídeo directamente en tu navegador (sin pasar por la TV), con
+los controles nativos del `<video>` más un botón de pantalla completa.
+
+**Nota sobre códecs (HEVC/H.265):** Chromecast/Google TV decodifica HEVC en hardware sin problema,
+así que un archivo en HEVC se envía tal cual a la TV. La mayoría de navegadores de escritorio
+(Chrome/Firefox en Windows sin un decodificador de hardware con licencia) no pueden decodificar
+HEVC en un `<video>` — el síntoma es que se oye el audio y se ven los subtítulos con normalidad,
+pero la imagen se queda en negro. Por eso el servidor mantiene, además de la caché pensada para la
+TV, una caché **independiente** para reproducción en navegador: si el vídeo no está ya en H.264, lo
+transcodifica a H.264 la primera vez que le das a "Reproducir" (puede tardar unos segundos, verás
+"Preparando vídeo…") y lo cachea aparte, sin tocar el archivo que se le sirve a la TV.
+
+## Eliminar vídeos
+
+Puedes borrar un vídeo desde tres sitios: la papelera en la esquina superior derecha de su
+miniatura en la biblioteca, o el botón "🗑 Eliminar" dentro de cada uno de los popups de Castear y
+de Reproducir. En los tres casos aparece un popup de confirmación antes de borrar nada.
+
+Al confirmar, el servidor elimina el **archivo original del disco** (no solo lo quita de la
+biblioteca) y todos sus archivos cacheados (remuxes/transcodificaciones, subtítulos extraídos,
+miniatura). **Es irreversible** — no hay papelera de reciclaje ni deshacer.
+
+## Limpieza automática de la caché
+
+`server/.cache` puede crecer bastante con remuxes/transcodificaciones de vídeos grandes, así que el
+servidor se limpia solo en dos momentos:
+
+- **Al arrancar** (`npm run dev` o `npm start`): borra los `.mp4` cacheados (tanto el pensado para
+  Chromecast como el de navegador) que no sean de ese mismo día — la caché existe para que
+  reproducir dos veces seguidas sea instantáneo, no para acumular vídeos recodificados
+  indefinidamente. Los `.vtt` (subtítulos) y `.jpg` (miniaturas) no se tocan aquí, pesan poco.
+- **Al escanear la biblioteca** (al arrancar o al pulsar "Actualizar biblioteca"): borra cualquier
+  archivo cacheado (remux, remux de navegador, subtítulos, miniatura) cuyo vídeo ya no esté en el
+  índice — porque lo borraste, lo moviste fuera de `MEDIA_DIRS` o le cambiaste el nombre.
+
+Ambas limpiezas son silenciosas si no hay nada que borrar, y si fallan solo avisan por consola sin
+interrumpir el arranque ni el escaneo.
 
 ## Requisitos
 
@@ -143,6 +191,9 @@ protocolo hayas abierto la página — la reproducción en la TV no depende de e
   usa CPU, pero funciona con casi cualquier archivo.
 - El descubrimiento de la TV depende de mDNS/Cast en tu red; si tu router aísla los dispositivos
   WiFi entre sí ("AP/client isolation"), la TV no aparecerá como destino de cast.
+- Reproducir en el navegador (no castear) un vídeo en HEVC/H.265 tarda unos segundos la primera
+  vez, porque se transcodifica aparte de la copia que se le sirve a la TV — ver
+  [Reproducción local en el navegador](#reproducción-local-en-el-navegador).
 
 ## Si guardas cambios y no ves el efecto (unidades de red/virtuales)
 

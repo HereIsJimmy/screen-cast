@@ -1,12 +1,17 @@
 import fs from "node:fs/promises";
 import { Router } from "express";
 import { getEntry } from "../lib/library.js";
-import { getPlayablePath, getSubtitleVttPath, getThumbnailPath } from "../lib/mediaCache.js";
+import { getPlayablePath, getSubtitleVttPath, getThumbnailPath, type PlayTarget } from "../lib/mediaCache.js";
 import { sendFileWithRange } from "../lib/rangeStream.js";
 import { readSubtitleStyle } from "../lib/subtitleStyle.js";
 import { applyCuePosition } from "../lib/subtitleVtt.js";
 
 export const streamRouter = Router();
+
+/** Reads the ?target=browser|cast query param used by /prepare and /stream. */
+function getPlayTarget(req: { query: { target?: unknown } }): PlayTarget {
+  return req.query.target === "browser" ? "browser" : "cast";
+}
 
 /**
  * Kicks off (and waits for) remux/subtitle-extraction for a video, so the
@@ -21,7 +26,7 @@ streamRouter.post("/videos/:id/prepare", async (req, res) => {
   }
 
   try {
-    await getPlayablePath(entry);
+    await getPlayablePath(entry, getPlayTarget(req));
     const supportedSubs = entry.subtitles.filter((s) => !s.unsupported);
     await Promise.all(supportedSubs.map((s) => getSubtitleVttPath(entry, s.index)));
     res.json({ ready: true });
@@ -38,7 +43,7 @@ streamRouter.get("/videos/:id/stream", async (req, res) => {
   }
 
   try {
-    const { path: filePath, contentType } = await getPlayablePath(entry);
+    const { path: filePath, contentType } = await getPlayablePath(entry, getPlayTarget(req));
     sendFileWithRange(req, res, filePath, contentType);
   } catch (err) {
     console.error(`[stream] Error preparando ${entry.relativePath}:`, err);

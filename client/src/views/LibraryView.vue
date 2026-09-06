@@ -1,9 +1,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
-import { useRouter } from "vue-router";
-import { fetchLibrary, fetchServerInfo, rescanLibrary, thumbnailUrl } from "@/services/api";
+import { useRoute, useRouter } from "vue-router";
+import { deleteVideo, fetchLibrary, fetchServerInfo, rescanLibrary, thumbnailUrl } from "@/services/api";
 import type { VideoDTO } from "@/types";
+import Modal from "@/components/Modal.vue";
+import ConfirmDialog from "@/components/ConfirmDialog.vue";
+import PlayerView from "@/views/PlayerView.vue";
+import WatchView from "@/views/WatchView.vue";
 
+const route = useRoute();
 const router = useRouter();
 const videos = ref<VideoDTO[]>([]);
 const loading = ref(true);
@@ -24,6 +29,22 @@ const PAGE_SIZE = 100;
 const visibleCount = ref(PAGE_SIZE);
 const scrollSentinel = ref<HTMLElement | null>(null);
 let sentinelObserver: IntersectionObserver | null = null;
+
+// The "player"/"watch" routes are shown as a popup layered on top of this
+// same library view, instead of navigating to a separate page — that way
+// the URL still changes (deep-linkable, shareable, back-button friendly),
+// but a direct visit to /play/:id or /ver/:id shows the library first and
+// only opens the popup once its own initial load has finished.
+const activeModal = computed<"player" | "watch" | null>(() => {
+  if (loading.value) return null;
+  if (route.name === "player") return "player";
+  if (route.name === "watch") return "watch";
+  return null;
+});
+
+function closeModal() {
+  router.push({ name: "library" });
+}
 
 const filteredVideos = computed(() => {
   const q = searchQuery.value.trim().toLowerCase();
@@ -97,6 +118,48 @@ function formatDuration(sec: number | null): string {
   const h = Math.floor(sec / 3600);
   const m = Math.floor((sec % 3600) / 60);
   return h > 0 ? `${h}h ${m}min` : `${m}min`;
+}
+
+// Deleting a video can be triggered from the trash icon on a thumbnail
+// (right here) or from inside the Castear/Reproducir popup (PlayerView /
+// WatchView emit "deleted" once they've done it) — either way the video
+// just needs to disappear from this list, without a full re-fetch.
+const videoPendingDelete = ref<VideoDTO | null>(null);
+const deletingFromGrid = ref(false);
+const deleteGridError = ref<string | null>(null);
+
+function requestDelete(video: VideoDTO) {
+  deleteGridError.value = null;
+  videoPendingDelete.value = video;
+}
+
+function cancelDelete() {
+  videoPendingDelete.value = null;
+}
+
+function removeVideoFromList(id: string) {
+  videos.value = videos.value.filter((v) => v.id !== id);
+}
+
+async function confirmDeleteFromGrid() {
+  const target = videoPendingDelete.value;
+  if (!target) return;
+  deletingFromGrid.value = true;
+  deleteGridError.value = null;
+  try {
+    await deleteVideo(target.id);
+    removeVideoFromList(target.id);
+    videoPendingDelete.value = null;
+  } catch (err) {
+    deleteGridError.value = (err as Error).message;
+  } finally {
+    deletingFromGrid.value = false;
+  }
+}
+
+/** Called by PlayerView/WatchView once they've deleted the video that's open in the popup. */
+function onVideoDeleted(id: string) {
+  removeVideoFromList(id);
 }
 
 function goToCast(video: VideoDTO) {
@@ -225,6 +288,30 @@ onBeforeUnmount(() => {
             />
             <div v-else class="video-thumb-placeholder">🎬</div>
             <span v-if="video.durationSec" class="thumb-duration">{{ formatDuration(video.durationSec) }}</span>
+            <button
+              class="thumb-delete"
+              type="button"
+              title="Eliminar vídeo"
+              aria-label="Eliminar vídeo"
+              @click.stop="requestDelete(video)"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                width="15"
+                height="15"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                <line x1="10" y1="11" x2="10" y2="17"></line>
+                <line x1="14" y1="11" x2="14" y2="17"></line>
+              </svg>
+            </button>
           </div>
           <div class="video-title">{{ video.title }}</div>
           <div class="video-meta">
@@ -243,4 +330,19 @@ onBeforeUnmount(() => {
       <div v-if="hasMoreVideos" ref="scrollSentinel" class="load-more-sentinel">Cargando más vídeos…</div>
     </template>
   </div>
+
+  <Modal v-if="activeModal" @close="closeModal">
+    <PlayerView v-if="activeModal === 'player'" @deleted="onVideoDeleted" />
+    <WatchView v-else-if="activeModal === 'watch'" @deleted="onVideoDeleted" />
+  </Modal>
+
+  <ConfirmDialog
+    v-if="videoPendingDelete"
+    title="Eliminar vídeo"
+    :message="`Se eliminará «${videoPendingDelete.title}» y todos sus archivos en caché. Esta acción no se puede deshacer.`"
+    :busy="deletingFromGrid"
+    :error="deleteGridError"
+    @confirm="confirmDeleteFromGrid"
+    @close="cancelDelete"
+  />
 </template>

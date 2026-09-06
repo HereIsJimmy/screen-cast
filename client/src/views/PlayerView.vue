@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { fetchServerInfo, fetchVideo, prepareVideo } from "@/services/api";
+import { deleteVideo, fetchServerInfo, fetchVideo, prepareVideo } from "@/services/api";
 import {
   castState,
   castVideo,
@@ -13,6 +13,9 @@ import {
   togglePlayPause,
 } from "@/services/cast";
 import type { ServerInfo, VideoDTO } from "@/types";
+import ConfirmDialog from "@/components/ConfirmDialog.vue";
+
+const emit = defineEmits<{ deleted: [id: string] }>();
 
 const route = useRoute();
 const router = useRouter();
@@ -23,6 +26,9 @@ const loading = ref(true);
 const preparing = ref(false);
 const localError = ref<string | null>(null);
 const selectedSubtitle = ref<number | "">("");
+const showDeleteConfirm = ref(false);
+const deleting = ref(false);
+const deleteError = ref<string | null>(null);
 
 const videoId = computed(() => String(route.params.id));
 
@@ -95,93 +101,114 @@ function onVolumeChange(event: Event) {
   setVolume(value);
 }
 
-function goBack() {
-  router.push({ name: "library" });
+async function handleDelete() {
+  if (!video.value) return;
+  deleting.value = true;
+  deleteError.value = null;
+  try {
+    if (isCastingThisVideo.value) stopCasting();
+    const deletedId = video.value.id;
+    await deleteVideo(deletedId);
+    showDeleteConfirm.value = false;
+    emit("deleted", deletedId);
+    router.push({ name: "library" });
+  } catch (err) {
+    deleteError.value = (err as Error).message;
+  } finally {
+    deleting.value = false;
+  }
 }
 
 onMounted(load);
 </script>
 
 <template>
-  <div class="container">
-    <header class="app-header">
-      <button class="btn secondary" @click="goBack">← Biblioteca</button>
-    </header>
+  <p v-if="localError" class="error-box">{{ localError }}</p>
+  <p v-if="castState.error" class="error-box">{{ castState.error }}</p>
 
-    <p v-if="localError" class="error-box">{{ localError }}</p>
-    <p v-if="castState.error" class="error-box">{{ castState.error }}</p>
+  <div v-if="loading" class="empty-state">Cargando…</div>
 
-    <div v-if="loading" class="empty-state">Cargando…</div>
-
-    <div v-else-if="video" class="player-card">
+  <div v-else-if="video" class="player-card">
+    <div class="modal-title-row">
       <h2>{{ video.title }}</h2>
+      <button class="btn danger" type="button" @click="showDeleteConfirm = true">🗑 Eliminar</button>
+    </div>
 
-      <div class="status-line">
-        <span class="dot" :class="{ connected: castState.isConnected }"></span>
-        <span v-if="isCastingThisVideo">Conectado a {{ castState.deviceName ?? "la TV" }}</span>
-        <span v-else-if="castState.isConnected">
-          Conectado a {{ castState.deviceName ?? "la TV" }} (reproduciendo otro vídeo)
-        </span>
-        <span v-else-if="!castState.sdkReady">Inicializando Google Cast…</span>
-        <span v-else-if="!castState.hasCastDevices">No se han encontrado TVs/Chromecasts en tu red</span>
-        <span v-else>Listo para castear</span>
-      </div>
+    <div class="status-line">
+      <span class="dot" :class="{ connected: castState.isConnected }"></span>
+      <span v-if="isCastingThisVideo">Conectado a {{ castState.deviceName ?? "la TV" }}</span>
+      <span v-else-if="castState.isConnected">
+        Conectado a {{ castState.deviceName ?? "la TV" }} (reproduciendo otro vídeo)
+      </span>
+      <span v-else-if="!castState.sdkReady">Inicializando Google Cast…</span>
+      <span v-else-if="!castState.hasCastDevices">No se han encontrado TVs/Chromecasts en tu red</span>
+      <span v-else>Listo para castear</span>
+    </div>
 
-      <div class="controls-row">
-        <select v-model="selectedSubtitle" @change="onSubtitleChange">
-          <option value="">Sin subtítulos</option>
-          <option
-            v-for="sub in video.subtitles.filter((s) => !s.unsupported)"
-            :key="sub.index"
-            :value="sub.index"
-          >
-            {{ sub.title || sub.language || `Pista ${sub.index + 1}` }}
-          </option>
-        </select>
-
-        <span v-if="video.subtitles.some((s) => s.unsupported)" class="badge warn">
-          Este vídeo tiene subtítulos en formato de imagen (no se pueden mostrar)
-        </span>
-      </div>
-
-      <div class="controls-row">
-        <button
-          v-if="!isCastingThisVideo"
-          class="btn"
-          :disabled="preparing || !castState.hasCastDevices"
-          @click="startCasting"
+    <div class="controls-row">
+      <select v-model="selectedSubtitle" @change="onSubtitleChange">
+        <option value="">Sin subtítulos</option>
+        <option
+          v-for="sub in video.subtitles.filter((s) => !s.unsupported)"
+          :key="sub.index"
+          :value="sub.index"
         >
-          {{ preparing ? "Preparando…" : castState.isConnected ? "▶ Reproducir aquí en la TV" : "▶ Castear a la TV" }}
+          {{ sub.title || sub.language || `Pista ${sub.index + 1}` }}
+        </option>
+      </select>
+
+      <span v-if="video.subtitles.some((s) => s.unsupported)" class="badge warn">
+        Este vídeo tiene subtítulos en formato de imagen (no se pueden mostrar)
+      </span>
+    </div>
+
+    <div class="controls-row">
+      <button
+        v-if="!isCastingThisVideo"
+        class="btn"
+        :disabled="preparing || !castState.hasCastDevices"
+        @click="startCasting"
+      >
+        {{ preparing ? "Preparando…" : castState.isConnected ? "▶ Reproducir aquí en la TV" : "▶ Castear a la TV" }}
+      </button>
+
+      <template v-else>
+        <button class="btn secondary" @click="togglePlayPause">⏯ Reproducir/Pausa</button>
+        <button class="btn secondary" @click="toggleMute">
+          {{ castState.isMuted ? "🔇 Quitar silencio" : "🔊 Silenciar" }}
         </button>
-
-        <template v-else>
-          <button class="btn secondary" @click="togglePlayPause">⏯ Reproducir/Pausa</button>
-          <button class="btn secondary" @click="toggleMute">
-            {{ castState.isMuted ? "🔇 Quitar silencio" : "🔊 Silenciar" }}
-          </button>
-          <button class="btn secondary" @click="stopCasting">⏹ Detener</button>
-        </template>
-      </div>
-
-      <template v-if="isCastingThisVideo">
-        <input
-          class="timeline"
-          type="range"
-          min="0"
-          :max="castState.durationSec || 0"
-          :value="castState.currentTimeSec"
-          @change="onSeekChange"
-        />
-        <div class="time-labels">
-          <span>{{ formatTime(castState.currentTimeSec) }}</span>
-          <span>{{ formatTime(castState.durationSec) }}</span>
-        </div>
-
-        <div class="controls-row">
-          <label for="volume">🔉</label>
-          <input id="volume" type="range" min="0" max="1" step="0.05" @change="onVolumeChange" />
-        </div>
+        <button class="btn secondary" @click="stopCasting">⏹ Detener</button>
       </template>
     </div>
+
+    <template v-if="isCastingThisVideo">
+      <input
+        class="timeline"
+        type="range"
+        min="0"
+        :max="castState.durationSec || 0"
+        :value="castState.currentTimeSec"
+        @change="onSeekChange"
+      />
+      <div class="time-labels">
+        <span>{{ formatTime(castState.currentTimeSec) }}</span>
+        <span>{{ formatTime(castState.durationSec) }}</span>
+      </div>
+
+      <div class="controls-row">
+        <label for="volume">🔉</label>
+        <input id="volume" type="range" min="0" max="1" step="0.05" @change="onVolumeChange" />
+      </div>
+    </template>
   </div>
+
+  <ConfirmDialog
+    v-if="showDeleteConfirm"
+    title="Eliminar vídeo"
+    :message="`Se eliminará «${video?.title}» y todos sus archivos en caché. Esta acción no se puede deshacer.`"
+    :busy="deleting"
+    :error="deleteError"
+    @confirm="handleDelete"
+    @close="showDeleteConfirm = false"
+  />
 </template>
