@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.cache/
+server/data/
+*.log
+.env
+.env.local
+server/.env
+client/.env
+*.pem
+*.key
+*.crt
+.DS_Store

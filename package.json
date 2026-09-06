@@ -1,0 +1,23 @@
+{
+  "name": "screen-cast",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Cast local videos (with embedded subtitle tracks) from your PC to a Chromecast-built-in / Google TV, from a Vue3 web app.",
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "cross-env CHOKIDAR_USEPOLLING=true concurrently -k -n SERVER,CLIENT -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
+    "build": "npm run build -w server && npm run build -w client",
+    "start": "npm run start -w server",
+    "postinstall": "echo 'Run npm run dev to start the server + client in development mode. See README.md.'"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "cross-env": "^7.0.3"
+  },
+  "engines": {
+    "node": ">=18.18"
+  }
+}
