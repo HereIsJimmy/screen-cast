@@ -1,5 +1,264 @@
 # Screen Cast
 
+*This is an English translation — [ir a la versión en español ↓](#en-español)*
+
+Web app (Vue 3 + TypeScript) and server (Node + Express + TypeScript) to cast local videos —
+with their embedded subtitle tracks (MKV, etc.) — to a TCL Smart TV running Google TV / Android
+TV, using built-in Chromecast (Google Cast).
+
+## How it works
+
+1. The server scans one or more folders on your PC for videos and reads their metadata
+   (duration, codecs, subtitle tracks) with `ffprobe`.
+2. The web app (Vue) lists your library. Each video has two buttons: "📡 Cast" and "▶ Play". Both
+   open a popup over the library itself instead of navigating to a separate page, but the URL
+   still changes (`/play/:id` or `/ver/:id`) — so you can reload the page or share that link: if
+   you go straight to that URL, the library loads first and the matching popup opens as soon as
+   it's ready.
+3. "📡 Cast" uses the Google Cast SDK to connect to your TV (they must be on the same WiFi
+   network) and control playback remotely (play/pause, volume, subtitles, seeking the timeline).
+   "▶ Play" plays the video directly in the browser using the browser's native `<video>` element
+   (with controls that include fullscreen) — handy for watching something quickly without
+   turning on the TV (see [Local playback in the browser](#local-playback-in-the-browser)).
+4. If the video is already compatible with the target (Chromecast or the browser itself — not
+   always the same, see below), it's sent as-is. If not (e.g. a `.mkv`), the server repackages it
+   (remux, no re-encoding) or transcodes it to MP4 the first time and caches it on disk.
+5. Since your subtitles are embedded in the container rather than in separate `.srt` files, the
+   server extracts each subtitle track to WebVTT (`.vtt`) with `ffmpeg` the first time it's
+   requested, and serves it as a separate text track — so the Cast receiver (or the browser
+   itself) can render it over the video.
+
+## "Recent videos" filter
+
+By default, the scan **doesn't even read with `ffprobe`** videos modified more than
+`RECENT_MONTHS` months ago (3 by default, configurable in `server/.env`) — so the scan stays fast
+even with a large, old library. The web app has an "Also include videos older than N months"
+checkbox: turning it on triggers a new scan that does probe those older videos and adds them to
+the library; turning it off, the next scan leaves them out again (nothing is "lost" — their
+thumbnails/remuxes cached in `server/.cache` are reused instantly if you include them again
+later, only their metadata needs to be re-read).
+
+## Subtitle style
+
+Under "🎨 Settings" (button next to "Update library") you can customize how subtitles look: font
+size and style, typeface, text/background/edge color and opacity, and whether they sit on a
+solid box or one with rounded corners. There's a live preview as you adjust each value.
+
+On save, the style is written to `server/data/subtitle-style.json` (created the first time you
+save; not tracked in git) and applied automatically the next time you cast a video. If you're
+already casting something at that moment, the change is sent to the TV instantly, with no need
+to re-cast. It also applies to local browser playback (see below) — font, colors, edge and
+background are rendered via a WebVTT `::cue` style, generated fresh from the same saved style
+each time a subtitle track is requested.
+
+You can also change the subtitles' **vertical position** (top/center/bottom). This doesn't
+travel through Cast's style API (which has no notion of position) — the server rewrites each
+cue's `line:` setting when serving the `.vtt` file, so unlike the rest of the style it doesn't
+update live: it applies the next time you switch subtitle tracks or cast/play again.
+
+## Local playback in the browser
+
+The "▶ Play" button plays the video directly in your browser (without going through the TV),
+with the browser's native `<video>` controls — including fullscreen, no separate button needed.
+
+**A note on codecs (HEVC/H.265):** Chromecast/Google TV decodes HEVC in hardware without issue,
+so an HEVC file is sent to the TV as-is. Most desktop browsers (Chrome/Firefox on Windows without
+a licensed hardware HEVC decoder) can't decode HEVC in a `<video>` element — the symptom is that
+audio plays and subtitles show up normally, but the picture stays black. That's why the server
+keeps, in addition to the cache meant for the TV, a **separate** cache for browser playback: if
+the video isn't already H.264, it transcodes it to H.264 the first time you hit "Play" (this can
+take a few seconds — you'll see "Preparing video…") and caches it separately, without touching
+the file served to the TV.
+
+**Preparing in advance:** since that first transcode can take a while, every thumbnail in the
+library has a button in its top-left corner to kick it off ahead of time, without needing to open
+the "Play" popup — handy for getting several videos ready in advance (e.g. from your phone,
+before a trip). The icon shows that video's status for browser playback:
+
+- ⬇️ (active button) — not ready yet; a click starts preparing it.
+- ⏳ — being prepared right now.
+- ✅ (green check) — already ready to play instantly, no transcoding needed (either because it's
+  already H.264/VP8/VP9, or because it was prepared before and is still cached). Clicking it
+  deletes the cached browser version, if there is one, and reverts back to the "prepare" state —
+  the video's original file and its Chromecast/subtitle/thumbnail caches are left untouched.
+
+## Deleting videos
+
+You can delete a video from three places: the trash icon in the top-right corner of its
+thumbnail in the library, or the delete button inside each of the Cast and Play popups (bottom-
+right of the popup). All three show a confirmation popup before deleting anything.
+
+On confirming, the server deletes the **original file from disk** (not just removing it from the
+library) along with all of its cached files (remuxes/transcodes, extracted subtitles, thumbnail).
+**This is irreversible** — there's no recycle bin or undo.
+
+## Automatic cache cleanup
+
+`server/.cache` can grow quite a bit with remuxes/transcodes of large videos, so the server
+cleans itself up at two points:
+
+- **On startup** (`npm run dev` or `npm start`): deletes cached `.mp4` files (both the one meant
+  for Chromecast and the browser one) that aren't from that same day — the cache exists to make
+  playing something twice in a row instant, not to accumulate re-encoded videos indefinitely.
+  `.vtt` (subtitles) and `.jpg` (thumbnails) files are left alone here, since they're cheap.
+- **On library scan** (on startup or when clicking "Update library"): deletes any cached file
+  (remux, browser remux, subtitles, thumbnail) whose video is no longer in the index — because
+  you deleted it, moved it out of `MEDIA_DIRS`, or renamed it. This step is skipped (with a
+  console warning) if any configured media folder couldn't be read during that scan, so a
+  temporarily unreachable drive never gets misread as "every video was deleted".
+
+Both cleanups are silent if there's nothing to delete, and if they fail they just log a warning
+to the console without interrupting startup or the scan.
+
+## Requirements
+
+- Node.js 18.18+ (20+ recommended).
+- **ffmpeg and ffprobe** installed and available on the system `PATH`.
+  - Windows: `winget install Gyan.FFmpeg` (or download from https://www.gyan.dev/ffmpeg/builds/
+    and add the `bin` folder to your PATH).
+  - macOS: `brew install ffmpeg`.
+  - Linux: `sudo apt install ffmpeg` (or your distro's package manager).
+- Your PC and the TCL TV connected to the **same WiFi/LAN network**.
+
+## Installation
+
+```bash
+npm install
+cp server/.env.example server/.env
+```
+
+Edit `server/.env` and set `MEDIA_DIRS` to the folder(s) where your videos live, e.g.:
+
+```
+MEDIA_DIRS=C:\Users\your-user\Videos
+```
+
+(on Windows use `\` paths; separate multiple folders with commas).
+
+## Development mode (on your own PC, `localhost`)
+
+```bash
+npm run dev
+```
+
+This starts the server (`http://localhost:4000`) and the Vite client (`http://localhost:5173`)
+together. Open `http://localhost:5173` in Chrome. Since Google Cast only requires a "secure
+context" for `localhost` or HTTPS, this mode works without certificates — it's the fastest way to
+check everything works before setting up access from your phone/another PC on the network.
+
+> Note: even though you open the web app on `localhost`, the video and subtitles sent to the
+> **TV** always use your PC's IP on the local network (the server detects it automatically),
+> because the TV doesn't understand "localhost".
+
+## "Actually casting" mode (HTTPS + access from your phone)
+
+Google Chrome requires the page you cast from to be served over **HTTPS**, unless it's
+`localhost`. If you want to control casting from your phone or another PC on the network (not
+the same one running the server), you need HTTPS with a certificate that device trusts.
+
+The simplest way is [`mkcert`](https://github.com/FiloSottile/mkcert):
+
+```bash
+# install mkcert (once)
+# Windows (with chocolatey):   choco install mkcert
+# macOS:                       brew install mkcert
+# Linux: see instructions in the mkcert repo
+
+mkcert -install
+mkcert -key-file server/localhost-key.pem -cert-file server/localhost-cert.pem localhost 127.0.0.1 <YOUR-PC-IP>
+```
+
+Replace `<YOUR-PC-IP>` with your PC's local IP (e.g. `192.168.1.50` — you can see it in the log
+when the server starts). Then, in `server/.env`:
+
+```
+HTTPS_KEY=./localhost-key.pem
+HTTPS_CERT=./localhost-cert.pem
+```
+
+And start in "production" mode (a single process serves the API and the already-built web app):
+
+```bash
+npm run build
+npm start
+```
+
+The server will print two URLs: `http://192.168.1.50:4000` and `https://192.168.1.50:4001` (the
+HTTPS port defaults to HTTP + 1, configurable with `HTTPS_PORT`). Open the **HTTPS** one from the
+browser on the phone/PC you want to control casting from (that device needs to trust the
+certificate — either it has mkcert's root CA installed, or you accept it manually if Chrome warns
+about an untrusted certificate).
+
+The TV itself **never** uses the HTTPS port and doesn't need to trust the certificate: the video,
+subtitles and thumbnails are always sent to it over the regular HTTP port, because it's the
+Chromecast/TV that downloads them directly (not the browser) — so it doesn't matter which
+protocol you opened the page with, playback on the TV doesn't depend on it.
+
+## Known limitations
+
+- **Image-based subtitles** (PGS/VobSub/DVB, typical of Blu-ray rips) can't be converted to
+  WebVTT — the web app marks them as "unavailable". Text subtitles (SRT, ASS, `mov_text`) do
+  work.
+- The first time you cast an incompatible video (e.g. a `.mkv`), the server takes a few seconds
+  to repackage it before it can play; subsequent times are instant (it stays cached in
+  `server/.cache`).
+- If a video uses a codec that neither Chromecast nor a simple remux support, with
+  `ALLOW_TRANSCODE=true` (the default) the server transcodes it with `libx264`/`aac` — slower and
+  uses CPU, but works with almost any file.
+- TV discovery depends on mDNS/Cast on your network; if your router isolates WiFi devices from
+  each other ("AP/client isolation"), the TV won't show up as a cast target.
+- Playing an HEVC/H.265 video in the browser (not casting) takes a few seconds the first time,
+  because it's transcoded separately from the copy served to the TV — see
+  [Local playback in the browser](#local-playback-in-the-browser).
+- Subtitle appearance customization (font, colors, edge, background) only affects local browser
+  playback via WebVTT `::cue` styling — Chromecast gets its look from Cast's own TextTrackStyle
+  API instead, and if you set both a background color and a window color, only the window color
+  shows up in the browser (WebVTT only supports one background per line of text).
+
+## If you save changes and don't see the effect (network/virtual drives)
+
+If the project lives on a drive that isn't a normal local disk (a network drive, a `subst`
+drive, a virtual disk, a cloud-synced folder...), both `tsx watch` (server) and Vite (client) may
+not pick up file changes automatically — Windows doesn't always send change notifications through
+that kind of drive. The symptom is exactly this: you save a change, restart, and it keeps
+behaving like before.
+
+It's already configured to use "polling" (actively checking files instead of waiting for a
+system notification) in both Vite and `tsx watch`, which makes it more robust in these cases —
+if you just updated the project, run `npm install` again to install `cross-env` (used to enable
+it). Even so, if some change still doesn't show up:
+
+1. Fully stop **both** processes (Ctrl+C until the prompt comes back) and close the terminal.
+2. Open it again and run `npm run dev`.
+3. For server-side changes, also hit "Update library" in the web app if the change affects how
+   videos are read/processed (titles, filters, etc.) — a simple restart doesn't re-scan the
+   library on its own.
+
+## Project structure
+
+```
+screen-cast/
+  server/    Express + TypeScript: library scanning, ffprobe, remux/extraction with ffmpeg,
+             streaming with Range request support.
+  client/    Vue 3 + TypeScript + Vite: video library and playback/cast screen using
+             Google Cast's Web Sender SDK (cast.framework).
+```
+
+## Useful commands
+
+- `npm run dev` — server + client in development mode with hot reload.
+- `npm run build` — builds the server (`tsc`) and the client (`vite build`).
+- `npm start` — starts the already-built server (also serves the built web app on the same
+  port).
+- "Update library" button in the web app, or `POST /api/library/rescan` — re-scans the
+  configured folders without restarting the server.
+
+---
+
+# En español
+
+# Screen Cast
+
 Web (Vue 3 + TypeScript) y servidor (Node + Express + TypeScript) para castear vídeos locales —
 con sus pistas de subtítulos incrustadas (MKV, etc.) — a una TCL Smart TV con Google TV / Android TV,
 usando Chromecast built-in (Google Cast).
