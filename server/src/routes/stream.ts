@@ -11,12 +11,27 @@ import {
 import { sendFileWithRange } from "../lib/rangeStream.js";
 import { readSubtitleStyle } from "../lib/subtitleStyle.js";
 import { applyCuePosition, buildCueStyleBlock, injectCueStyle } from "../lib/subtitleVtt.js";
+import type { VideoEntry } from "../types.js";
 
 export const streamRouter = Router();
 
 /** Reads the ?target=browser|cast query param used by /prepare and /stream. */
 function getPlayTarget(req: { query: { target?: unknown } }): PlayTarget {
   return req.query.target === "browser" ? "browser" : "cast";
+}
+
+/**
+ * Reads the ?audio=N query param used by /prepare and /stream, falling back
+ * to the entry's own default (entry.defaultAudioTrackIndex — see
+ * pickDefaultAudioTrackIndex in library.ts) when it's missing or doesn't
+ * name a real audio track on this video — mirrors getPlayTarget above.
+ */
+function getAudioTrackIndex(req: { query: { audio?: unknown } }, entry: VideoEntry): number {
+  const raw = Number(req.query.audio);
+  if (Number.isInteger(raw) && raw >= 0 && entry.audioTracks.some((t) => t.index === raw)) {
+    return raw;
+  }
+  return entry.defaultAudioTrackIndex;
 }
 
 /**
@@ -32,7 +47,7 @@ streamRouter.post("/videos/:id/prepare", async (req, res) => {
   }
 
   try {
-    await getPlayablePath(entry, getPlayTarget(req));
+    await getPlayablePath(entry, getPlayTarget(req), getAudioTrackIndex(req, entry));
     const supportedSubs = entry.subtitles.filter((s) => !s.unsupported);
     await Promise.all(supportedSubs.map((s) => getSubtitleVttPath(entry, s.index)));
     res.json({ ready: true });
@@ -74,7 +89,11 @@ streamRouter.get("/videos/:id/stream", async (req, res) => {
   }
 
   try {
-    const { path: filePath, contentType } = await getPlayablePath(entry, getPlayTarget(req));
+    const { path: filePath, contentType } = await getPlayablePath(
+      entry,
+      getPlayTarget(req),
+      getAudioTrackIndex(req, entry)
+    );
     sendFileWithRange(req, res, filePath, contentType);
   } catch (err) {
     console.error(`[stream] Error preparando ${entry.relativePath}:`, err);

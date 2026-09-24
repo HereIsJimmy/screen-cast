@@ -164,12 +164,17 @@ function buildSubtitleTracks(serverInfo: ServerInfo, video: VideoDTO): chrome.ca
  * Starts (or takes over) a Cast session and tells the TV to load the given
  * video, with its subtitle tracks attached. `defaultSubtitleIndex` (the
  * server-side subtitle index, not the Cast trackId) is enabled immediately
- * if provided.
+ * if provided. `audioTrackIndex` (the server-side audio track index, 0 by
+ * default) picks which embedded audio stream the server bakes into the
+ * remux the content URL points at — there's no Cast-side mechanism to
+ * switch embedded audio tracks mid-session, so this only takes effect at
+ * load time.
  */
 export async function castVideo(
   serverInfo: ServerInfo,
   video: VideoDTO,
-  defaultSubtitleIndex: number | null
+  defaultSubtitleIndex: number | null,
+  audioTrackIndex = 0
 ): Promise<void> {
   await initializeCast();
   castState.error = null;
@@ -192,7 +197,7 @@ export async function castVideo(
     return;
   }
 
-  const contentUrl = toAbsoluteMediaUrl(serverInfo, videoStreamPath(video.id));
+  const contentUrl = toAbsoluteMediaUrl(serverInfo, videoStreamPath(video.id, { audioTrackIndex }));
   const mediaInfo = new chrome.cast.media.MediaInfo(contentUrl, video.contentType);
   mediaInfo.streamType = chrome.cast.media.StreamType.BUFFERED;
   mediaInfo.metadata = new chrome.cast.media.GenericMediaMetadata();

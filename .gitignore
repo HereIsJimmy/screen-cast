@@ -11,3 +11,4 @@ client/.env
 *.key
 *.crt
 .DS_Store
+CLAUDE.md

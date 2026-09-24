@@ -26,6 +26,7 @@ const loading = ref(true);
 const preparing = ref(false);
 const localError = ref<string | null>(null);
 const selectedSubtitle = ref<number | "">("");
+const selectedAudioTrack = ref(0);
 const showDeleteConfirm = ref(false);
 const deleting = ref(false);
 const deleteError = ref<string | null>(null);
@@ -40,6 +41,15 @@ const isCastingThisVideo = computed(
   () => castState.isConnected && castState.currentVideoId === video.value?.id
 );
 
+const hasUnsupportedSubtitles = computed(() => video.value?.subtitles.some((s) => s.unsupported) ?? false);
+const hasSupportedSubtitles = computed(() => video.value?.subtitles.some((s) => !s.unsupported) ?? false);
+
+/** Label for an audio-track <option>: its title (or a fallback), with the language in parentheses when known. */
+function audioTrackLabel(track: { index: number; language?: string; title?: string }): string {
+  const base = track.title || `Pista de audio ${track.index + 1}`;
+  return track.language ? `${base} (${track.language})` : base;
+}
+
 async function load() {
   loading.value = true;
   localError.value = null;
@@ -51,6 +61,7 @@ async function load() {
       const first = v.subtitles.find((s) => !s.unsupported);
       selectedSubtitle.value = first ? first.index : "";
     }
+    selectedAudioTrack.value = v.defaultAudioTrackIndex;
   } catch (err) {
     localError.value = (err as Error).message;
   } finally {
@@ -63,9 +74,9 @@ async function startCasting() {
   localError.value = null;
   preparing.value = true;
   try {
-    await prepareVideo(video.value.id);
+    await prepareVideo(video.value.id, { audioTrackIndex: selectedAudioTrack.value });
     const subIndex = selectedSubtitle.value === "" ? null : Number(selectedSubtitle.value);
-    await castVideo(serverInfo.value, video.value, subIndex);
+    await castVideo(serverInfo.value, video.value, subIndex, selectedAudioTrack.value);
   } catch (err) {
     localError.value = (err as Error).message;
   } finally {
@@ -111,7 +122,7 @@ async function handleDelete() {
     await deleteVideo(deletedId);
     showDeleteConfirm.value = false;
     emit("deleted", deletedId);
-    router.push({ name: "library" });
+    router.push({ name: "library", query: route.query });
   } catch (err) {
     deleteError.value = (err as Error).message;
   } finally {
@@ -156,9 +167,21 @@ onMounted(load);
         </option>
       </select>
 
-      <span v-if="video.subtitles.some((s) => s.unsupported)" class="badge warn">
-        Este vídeo tiene subtítulos en formato de imagen (no se pueden mostrar)
+      <span v-if="hasUnsupportedSubtitles" class="badge warn">
+        {{
+          hasSupportedSubtitles
+            ? "Tiene algunos subtítulos inválidos"
+            : "Este vídeo tiene subtítulos en formato de imagen (no se pueden mostrar)"
+        }}
       </span>
+    </div>
+
+    <div v-if="video.audioTracks.length > 1" class="controls-row">
+      <select v-model.number="selectedAudioTrack" :disabled="isCastingThisVideo">
+        <option v-for="track in video.audioTracks" :key="track.index" :value="track.index">
+          {{ audioTrackLabel(track) }}
+        </option>
+      </select>
     </div>
 
     <div class="controls-row">

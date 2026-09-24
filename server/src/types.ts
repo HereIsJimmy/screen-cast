@@ -8,6 +8,14 @@ export interface SubtitleTrackInfo {
   unsupported: boolean;
 }
 
+export interface AudioTrackInfo {
+  /** Position among audio streams only (0-based). Matches ffmpeg's `-map 0:a:{index}`. */
+  index: number;
+  language?: string;
+  title?: string;
+  codec: string;
+}
+
 export interface VideoEntry {
   /** Stable id derived from the file's relative path. */
   id: string;
@@ -25,6 +33,16 @@ export interface VideoEntry {
   /** True when the file can be sent to the TV as-is (compatible container + codecs). */
   directPlayCompatible: boolean;
   subtitles: SubtitleTrackInfo[];
+  /** All audio streams found in the file. Empty when ffprobe reported none. */
+  audioTracks: AudioTrackInfo[];
+  /**
+   * Which entry of audioTracks is used when a request doesn't specify one
+   * (see pickDefaultAudioTrackIndex in library.ts) — the single source of
+   * truth for "default audio track" that /prepare, /stream, isBrowserReady
+   * and deleteBrowserCache all fall back to, and that the client's
+   * audio-track dropdowns preselect.
+   */
+  defaultAudioTrackIndex: number;
 }
 
 export interface VideoDTO {
@@ -46,6 +64,12 @@ export interface VideoDTO {
     title?: string;
     unsupported: boolean;
   }[];
+  audioTracks: {
+    index: number;
+    language?: string;
+    title?: string;
+  }[];
+  defaultAudioTrackIndex: number;
 }
 
 export interface FfprobeStream {

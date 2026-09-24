@@ -5,6 +5,12 @@ export interface SubtitleTrackDTO {
   unsupported: boolean;
 }
 
+export interface AudioTrackDTO {
+  index: number;
+  language?: string;
+  title?: string;
+}
+
 export interface VideoDTO {
   id: string;
   title: string;
@@ -18,6 +24,9 @@ export interface VideoDTO {
   /** True when this video can be streamed to a local <video> element right now, with no wait. */
   browserReady: boolean;
   subtitles: SubtitleTrackDTO[];
+  audioTracks: AudioTrackDTO[];
+  /** Which entry of audioTracks the server uses when a request doesn't specify one (e.g. prefers a Japanese track for dual-audio releases). */
+  defaultAudioTrackIndex: number;
 }
 
 export interface ServerInfo {
@@ -28,6 +37,8 @@ export interface ServerInfo {
   /** Extra HTTPS listener for opening the web UI itself as a secure context (e.g. from a phone), or null if not configured. Never used to build media URLs. */
   httpsPort: number | null;
   recentMonths: number;
+  /** Whether server/.env has SHUTDOWN_ENABLED=true — gates the "Varios" section in Configuración. */
+  shutdownEnabled: boolean;
 }
 
 /** Mirrors chrome.cast.media.TextTrackStyle — see services/cast.ts for how it's applied. */

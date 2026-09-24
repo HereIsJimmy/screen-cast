@@ -45,34 +45,55 @@ function isBrowserDirectPlayable(entry: VideoEntry): boolean {
   return false;
 }
 
+/** Codec of one specific audio track, or null when that index doesn't exist. */
+function audioTrackCodec(entry: VideoEntry, audioTrackIndex: number): string | null {
+  return entry.audioTracks.find((t) => t.index === audioTrackIndex)?.codec ?? null;
+}
+
+/**
+ * File-name suffix (on top of the "-browser" one) for the entry's *default*
+ * audio track — "" for track 0, "-a{N}" otherwise. isBrowserReady and
+ * deleteBrowserCache use this to look at the same cache file getPlayablePath
+ * produces/reuses when a request omits ?audio and falls back to
+ * entry.defaultAudioTrackIndex (see getAudioTrackIndex in routes/stream.ts).
+ */
+function defaultBrowserCacheSuffix(entry: VideoEntry): string {
+  return entry.defaultAudioTrackIndex === 0 ? "" : `-a${entry.defaultAudioTrackIndex}`;
+}
+
 /**
  * True when a video can be streamed to a local <video> element right now,
  * with no wait: either it doesn't need any processing for the browser at
- * all (isBrowserDirectPlayable), or a previous prepare/play already left
- * its browser-targeted remux/transcode sitting in the cache. This is a
- * plain disk check — it never runs ffmpeg — so it's cheap enough to call
- * for every video when building the library listing (see library.ts
- * toDTO), which is how the client knows to show a ready checkmark instead
- * of the "prepare" button without having to ask separately per video.
+ * all (isBrowserDirectPlayable — only possible when the default audio
+ * track is literally the file's first one, since serving the untouched
+ * file always plays that one), or a previous prepare/play already left its
+ * browser-targeted remux/transcode for the default audio track sitting in
+ * the cache. This is a plain disk check — it never runs ffmpeg — so it's
+ * cheap enough to call for every video when building the library listing
+ * (see library.ts toDTO), which is how the client knows to show a ready
+ * checkmark instead of the "prepare" button without having to ask
+ * separately per video.
  */
 export function isBrowserReady(entry: VideoEntry): boolean {
-  if (isBrowserDirectPlayable(entry)) return true;
-  const cachedPath = path.join(config.cacheDir, `${cacheKey(entry)}-browser.mp4`);
+  if (entry.defaultAudioTrackIndex === 0 && isBrowserDirectPlayable(entry)) return true;
+  const cachedPath = path.join(config.cacheDir, `${cacheKey(entry)}-browser${defaultBrowserCacheSuffix(entry)}.mp4`);
   return existsSync(cachedPath);
 }
 
 /**
- * Removes just the cached browser remux/transcode for a video (the
- * "-browser.mp4" file getPlayablePath(entry, "browser") produces and
- * reuses), leaving its Chromecast remux, subtitles and thumbnail alone.
- * Used by the library grid's ready checkmark: clicking it un-prepares the
- * video — handy to reclaim disk space, or to force a fresh transcode later
- * (e.g. after changing something upstream). A no-op for a video that never
- * needed a cache file to begin with (isBrowserDirectPlayable) — there's
- * nothing on disk to remove, so it stays ready either way.
+ * Removes just the cached browser remux/transcode for a video's default
+ * audio track (the file getPlayablePath(entry, "browser") produces and
+ * reuses when no specific track is requested), leaving its Chromecast
+ * remux, subtitles, thumbnail, and any other audio-track-specific browser
+ * remux alone. Used by the library grid's ready checkmark: clicking it
+ * un-prepares the video — handy to reclaim disk space, or to force a fresh
+ * transcode later (e.g. after changing something upstream). A no-op for a
+ * video that never needed a cache file to begin with
+ * (isBrowserDirectPlayable) — there's nothing on disk to remove, so it
+ * stays ready either way.
  */
 export async function deleteBrowserCache(entry: VideoEntry): Promise<{ removed: boolean }> {
-  const cachedPath = path.join(config.cacheDir, `${cacheKey(entry)}-browser.mp4`);
+  const cachedPath = path.join(config.cacheDir, `${cacheKey(entry)}-browser${defaultBrowserCacheSuffix(entry)}.mp4`);
   if (!existsSync(cachedPath)) return { removed: false };
   await fs.rm(cachedPath, { force: true });
   return { removed: true };
@@ -231,7 +252,14 @@ async function withDedupe(key: string, fn: () => Promise<string>): Promise<strin
  */
 async function getCachedRemux(
   entry: VideoEntry,
-  opts: { suffix: string; videoCopyOk: boolean; audioCopyOk: boolean; targetLabel: string }
+  opts: {
+    suffix: string;
+    videoCopyOk: boolean;
+    audioCopyOk: boolean;
+    targetLabel: string;
+    audioTrackIndex: number;
+    audioCodecLabel: string;
+  }
 ): Promise<{ path: string; contentType: string }> {
   await ensureCacheDir();
   const outputPath = path.join(config.cacheDir, `${cacheKey(entry)}${opts.suffix}.mp4`);
@@ -243,7 +271,7 @@ async function getCachedRemux(
   if ((!opts.videoCopyOk || !opts.audioCopyOk) && !config.allowTranscode) {
     throw new Error(
       `"${entry.relativePath}" usa códecs no compatibles con ${opts.targetLabel} ` +
-        `(vídeo: ${entry.videoCodec ?? "?"}, audio: ${entry.audioCodec ?? "?"}) y ALLOW_TRANSCODE está desactivado.`
+        `(vídeo: ${entry.videoCodec ?? "?"}, audio: ${opts.audioCodecLabel}) y ALLOW_TRANSCODE está desactivado.`
     );
   }
 
@@ -267,7 +295,7 @@ async function getCachedRemux(
         "-map",
         "0:v:0",
         "-map",
-        "0:a:0?",
+        `0:a:${opts.audioTrackIndex}?`,
         ...videoArgs,
         ...audioArgs,
         "-movflags",
@@ -298,22 +326,31 @@ async function getCachedRemux(
  */
 export async function getPlayablePath(
   entry: VideoEntry,
-  target: PlayTarget = "cast"
+  target: PlayTarget = "cast",
+  audioTrackIndex = 0
 ): Promise<{ path: string; contentType: string }> {
+  // Direct-play (serving the original file untouched) only works for the
+  // default audio track — anything else always needs a remux with that
+  // track explicitly mapped in, even when the file would otherwise qualify.
+  const audioSuffix = audioTrackIndex === 0 ? "" : `-a${audioTrackIndex}`;
+  const selectedAudioCodec = audioTrackIndex === 0 ? entry.audioCodec : audioTrackCodec(entry, audioTrackIndex);
+
   if (target === "browser") {
-    if (isBrowserDirectPlayable(entry)) {
+    if (audioTrackIndex === 0 && isBrowserDirectPlayable(entry)) {
       const contentType = entry.containerExt === ".webm" ? "video/webm" : "video/mp4";
       return { path: entry.absolutePath, contentType };
     }
     return getCachedRemux(entry, {
-      suffix: "-browser",
+      suffix: `-browser${audioSuffix}`,
       videoCopyOk: entry.videoCodec ? BROWSER_VIDEO_COPY_CODECS.has(entry.videoCodec.toLowerCase()) : false,
-      audioCopyOk: entry.audioCodec ? AUDIO_COPY_CODECS.has(entry.audioCodec.toLowerCase()) : true,
+      audioCopyOk: selectedAudioCodec ? AUDIO_COPY_CODECS.has(selectedAudioCodec.toLowerCase()) : true,
       targetLabel: "este navegador",
+      audioTrackIndex,
+      audioCodecLabel: selectedAudioCodec ?? "?",
     });
   }
 
-  if (entry.directPlayCompatible) {
+  if (audioTrackIndex === 0 && entry.directPlayCompatible) {
     return { path: entry.absolutePath, contentType: getStreamContentType(entry) };
   }
 
@@ -323,10 +360,12 @@ export async function getPlayablePath(
   // audio codecs like AC3/DTS would "succeed" (many containers accept them)
   // while producing a file the TV still can't play.
   return getCachedRemux(entry, {
-    suffix: "",
+    suffix: audioSuffix,
     videoCopyOk: entry.videoCodec ? VIDEO_COPY_CODECS.has(entry.videoCodec.toLowerCase()) : false,
-    audioCopyOk: entry.audioCodec ? AUDIO_COPY_CODECS.has(entry.audioCodec.toLowerCase()) : true,
+    audioCopyOk: selectedAudioCodec ? AUDIO_COPY_CODECS.has(selectedAudioCodec.toLowerCase()) : true,
     targetLabel: "Chromecast",
+    audioTrackIndex,
+    audioCodecLabel: selectedAudioCodec ?? "?",
   });
 }
 

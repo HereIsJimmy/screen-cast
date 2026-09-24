@@ -18,5 +18,6 @@ serverInfoRouter.get("/server-info", (_req, res) => {
     // móvil en https://..." — never used to build media URLs.
     httpsPort: config.useHttps ? config.httpsPort : null,
     recentMonths: config.recentMonths,
+    shutdownEnabled: config.shutdownEnabled,
   });
 });

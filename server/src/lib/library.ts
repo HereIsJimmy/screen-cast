@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { config } from "../config.js";
-import type { SubtitleTrackInfo, VideoEntry, VideoDTO } from "../types.js";
+import type { AudioTrackInfo, SubtitleTrackInfo, VideoEntry, VideoDTO } from "../types.js";
 import { probeFile } from "./ffprobe.js";
 import { deleteCacheForId, isBrowserReady, pruneOrphanedCache } from "./mediaCache.js";
 
@@ -17,6 +17,24 @@ const MP4_VIDEO_CODECS = new Set(["h264", "hevc", "h265"]);
 const MP4_AUDIO_CODECS = new Set(["aac", "mp3"]);
 const WEBM_VIDEO_CODECS = new Set(["vp8", "vp9"]);
 const WEBM_AUDIO_CODECS = new Set(["opus", "vorbis"]);
+
+/** True for common ffprobe language-tag spellings of Japanese ("ja", "jpn", "jap", …). */
+function isJapaneseAudioTrack(track: { language?: string }): boolean {
+  const lang = track.language?.trim().toLowerCase() ?? "";
+  return lang === "ja" || lang === "jpn" || lang === "jap" || lang.startsWith("japan");
+}
+
+/**
+ * Picks which audio track is used whenever a request doesn't name one:
+ * prefers a Japanese-tagged track when the file has more than one audio
+ * stream (the common case for dual-audio anime releases), falling back to
+ * the first track (index 0) otherwise. This is the single source of truth
+ * for "default audio track" — see VideoEntry.defaultAudioTrackIndex.
+ */
+function pickDefaultAudioTrackIndex(tracks: AudioTrackInfo[]): number {
+  if (tracks.length <= 1) return 0;
+  return tracks.find((t) => isJapaneseAudioTrack(t))?.index ?? 0;
+}
 
 /** In-memory index of the library. Rebuilt by scanLibrary(). */
 const entries = new Map<string, VideoEntry>();
@@ -133,17 +151,26 @@ async function buildEntry(
   let videoCodec: string | null = null;
   let audioCodec: string | null = null;
   const subtitles: SubtitleTrackInfo[] = [];
+  const audioTracks: AudioTrackInfo[] = [];
 
   try {
     const probe = await probeFile(absolutePath);
     durationSec = probe.format.duration ? Math.round(Number(probe.format.duration)) : null;
 
     let subtitleIndex = 0;
+    let audioIndex = 0;
     for (const stream of probe.streams) {
       if (stream.codec_type === "video" && !videoCodec) {
         videoCodec = stream.codec_name;
-      } else if (stream.codec_type === "audio" && !audioCodec) {
-        audioCodec = stream.codec_name;
+      } else if (stream.codec_type === "audio") {
+        if (!audioCodec) audioCodec = stream.codec_name;
+        audioTracks.push({
+          index: audioIndex,
+          language: stream.tags?.language,
+          title: stream.tags?.title,
+          codec: stream.codec_name,
+        });
+        audioIndex += 1;
       } else if (stream.codec_type === "subtitle") {
         subtitles.push({
           index: subtitleIndex,
@@ -177,6 +204,8 @@ async function buildEntry(
       containerExt,
       directPlayCompatible: isDirectPlayCompatible(containerExt, videoCodec, audioCodec),
       subtitles,
+      audioTracks,
+      defaultAudioTrackIndex: pickDefaultAudioTrackIndex(audioTracks),
     },
   };
 }
@@ -377,5 +406,11 @@ export function toDTO(entry: VideoEntry): VideoDTO {
       title: s.title,
       unsupported: s.unsupported,
     })),
+    audioTracks: entry.audioTracks.map((a) => ({
+      index: a.index,
+      language: a.language,
+      title: a.title,
+    })),
+    defaultAudioTrackIndex: entry.defaultAudioTrackIndex,
   };
 }

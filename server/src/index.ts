@@ -14,6 +14,7 @@ import { libraryRouter } from "./routes/library.js";
 import { streamRouter } from "./routes/stream.js";
 import { serverInfoRouter } from "./routes/serverInfo.js";
 import { subtitleStyleRouter } from "./routes/subtitleStyle.js";
+import { systemRouter } from "./routes/system.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -46,6 +47,7 @@ async function main() {
   app.use("/api", streamRouter);
   app.use("/api", serverInfoRouter);
   app.use("/api", subtitleStyleRouter);
+  app.use("/api", systemRouter);
 
   // In production, serve the built Vue app from the same server so there's
   // only one process/port to run on the machine that hosts the library.

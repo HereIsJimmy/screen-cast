@@ -17,6 +17,7 @@ const error = ref<string | null>(null);
 const ready = ref(false);
 const videoEl = ref<HTMLVideoElement | null>(null);
 const selectedSubtitle = ref<number | "">("");
+const selectedAudioTrack = ref(0);
 const showDeleteConfirm = ref(false);
 const deleting = ref(false);
 const deleteError = ref<string | null>(null);
@@ -24,6 +25,42 @@ const deleteError = ref<string | null>(null);
 const videoId = computed(() => String(route.params.id));
 
 const supportedSubtitles = computed(() => video.value?.subtitles.filter((s) => !s.unsupported) ?? []);
+const hasUnsupportedSubtitles = computed(() => video.value?.subtitles.some((s) => s.unsupported) ?? false);
+
+/** Label for an audio-track <option>: its title (or a fallback), with the language in parentheses when known. */
+function audioTrackLabel(track: { index: number; language?: string; title?: string }): string {
+  const base = track.title || `Pista de audio ${track.index + 1}`;
+  return track.language ? `${base} (${track.language})` : base;
+}
+
+// Same reason the Cast player does this: the first request for a video
+// that needs remuxing/transcoding can take a while, so we wait for it here
+// and show "Preparando…" instead of leaving a native <video> stuck spinning
+// with no explanation. Also re-run whenever the selected audio track
+// changes: there's no live audio-track switching in a plain <video>
+// element, so a new choice means a fresh prepare + a remounted <video> with
+// the new track baked into its src (the v-if="ready" toggle forces that
+// remount).
+async function prepareForBrowser() {
+  if (!video.value) return;
+  ready.value = false;
+  error.value = null;
+  preparing.value = true;
+  try {
+    await prepareVideo(video.value.id, { forBrowser: true, audioTrackIndex: selectedAudioTrack.value });
+    ready.value = true;
+  } catch (err) {
+    error.value = (err as Error).message;
+  } finally {
+    preparing.value = false;
+  }
+}
+
+// Guards the watcher below against firing (and double-preparing) when load()
+// sets selectedAudioTrack programmatically to its per-video default, as
+// opposed to the user actually changing the dropdown — true for the whole
+// span from that assignment through load()'s own prepareForBrowser() call.
+let settingDefaultAudioTrack = false;
 
 async function load() {
   loading.value = true;
@@ -34,21 +71,21 @@ async function load() {
     video.value = v;
     const first = v.subtitles.find((s) => !s.unsupported);
     selectedSubtitle.value = first ? first.index : "";
-
-    // Same reason the Cast player does this: the first request for a video
-    // that needs remuxing/transcoding can take a while, so we wait for it
-    // here and show "Preparando…" instead of leaving a native <video> stuck
-    // spinning with no explanation.
-    preparing.value = true;
-    await prepareVideo(v.id, { forBrowser: true });
-    ready.value = true;
+    settingDefaultAudioTrack = true;
+    selectedAudioTrack.value = v.defaultAudioTrackIndex;
+    await prepareForBrowser();
   } catch (err) {
     error.value = (err as Error).message;
   } finally {
-    preparing.value = false;
     loading.value = false;
+    settingDefaultAudioTrack = false;
   }
 }
+
+watch(selectedAudioTrack, (newVal, oldVal) => {
+  if (settingDefaultAudioTrack || newVal === oldVal || !video.value) return;
+  prepareForBrowser();
+});
 
 /** Native <video> text tracks don't support v-model — toggle .mode by hand instead. */
 function applySubtitleSelection() {
@@ -72,7 +109,7 @@ async function handleDelete() {
     await deleteVideo(deletedId);
     showDeleteConfirm.value = false;
     emit("deleted", deletedId);
-    router.push({ name: "library" });
+    router.push({ name: "library", query: route.query });
   } catch (err) {
     deleteError.value = (err as Error).message;
   } finally {
@@ -93,11 +130,13 @@ onMounted(load);
       <h2>{{ video.title }}</h2>
     </div>
 
+    <p v-if="!loading && !ready && preparing" class="empty-state">Preparando vídeo…</p>
+
     <video
       v-if="ready"
       ref="videoEl"
       class="watch-video"
-      :src="relativeMediaUrl(videoStreamPath(video.id, { forBrowser: true }))"
+      :src="relativeMediaUrl(videoStreamPath(video.id, { forBrowser: true, audioTrackIndex: selectedAudioTrack }))"
       controls
       autoplay
       playsinline
@@ -122,9 +161,21 @@ onMounted(load);
         </option>
       </select>
 
-      <span v-if="video.subtitles.some((s) => s.unsupported)" class="badge warn">
-        Este vídeo tiene subtítulos en formato de imagen (no se pueden mostrar)
+      <span v-if="hasUnsupportedSubtitles" class="badge warn">
+        {{
+          supportedSubtitles.length > 0
+            ? "Tiene algunos subtítulos inválidos"
+            : "Este vídeo tiene subtítulos en formato de imagen (no se pueden mostrar)"
+        }}
       </span>
+    </div>
+
+    <div v-if="video.audioTracks.length > 1" class="controls-row">
+      <select v-model.number="selectedAudioTrack" :disabled="preparing">
+        <option v-for="track in video.audioTracks" :key="track.index" :value="track.index">
+          {{ audioTrackLabel(track) }}
+        </option>
+      </select>
     </div>
 
     <div class="modal-actions">

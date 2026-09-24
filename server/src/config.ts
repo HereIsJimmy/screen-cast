@@ -56,6 +56,14 @@ export const config = {
     ".m4v",
     ".avi",
   ]).map((ext) => (ext.startsWith(".") ? ext.toLowerCase() : `.${ext.toLowerCase()}`)),
+  /** Shows/enables the "Apagar el PC del servidor" button in Configuración > Varios. Off by default. */
+  shutdownEnabled: (process.env.SHUTDOWN_ENABLED ?? "false").toLowerCase() === "true",
+  /**
+   * Required to actually shut down, independent of shutdownEnabled — even
+   * with the feature flag on, an empty/unset password disables the route
+   * rather than allowing a no-password shutdown.
+   */
+  shutdownPassword: process.env.SHUTDOWN_PASSWORD?.trim() || undefined,
 };
 
 if (config.mediaDirs.length === 0) {

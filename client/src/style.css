@@ -565,6 +565,36 @@ select {
   line-height: 1.5;
 }
 
+.settings-section + .settings-section {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid #262a33;
+}
+
+.settings-section-title {
+  margin: 0 0 16px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.settings-field input[type="password"] {
+  background: var(--surface-hover);
+  color: var(--text);
+  border: 1px solid #2d313c;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.85rem;
+  width: 100%;
+}
+
+.settings-field input[type="password"]:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -644,4 +674,79 @@ select {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+/* Folder navigation in the library: back button + breadcrumb above the grid,
+   and folder cards that reuse the video-card look (cover = newest video). */
+.folder-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  min-width: 0;
+}
+
+.breadcrumb li {
+  overflow-wrap: anywhere;
+}
+
+.breadcrumb li + li::before {
+  content: "›";
+  margin: 0 8px;
+}
+
+.breadcrumb a {
+  color: var(--text-dim);
+  text-decoration: none;
+}
+
+.breadcrumb a:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.breadcrumb [aria-current="page"] {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.folder-card {
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.folder-card:hover,
+.folder-card:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.folder-card .video-title {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+.folder-badge {
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  background: rgba(0, 0, 0, 0.75);
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 1rem;
+  line-height: 1.4;
 }

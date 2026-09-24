@@ -38,6 +38,17 @@ the library; turning it off, the next scan leaves them out again (nothing is "lo
 thumbnails/remuxes cached in `server/.cache` are reused instantly if you include them again
 later, only their metadata needs to be re-read).
 
+## Folders
+
+The library mirrors the folder structure inside `MEDIA_DIRS`: subfolders are shown as folder
+cards (with the newest video's thumbnail and how many videos they contain) next to the videos
+at that level. Clicking a folder shows only what's inside it, with a "Volver" button and a
+breadcrumb to go back up. The current folder is part of the URL (`/?carpeta=Series/Show`), so it
+survives opening/closing a video and works with the browser's back button. Folders follow the
+"recent videos" filter: a folder whose videos are all too old isn't shown. Searching lists every
+matching video inside the current folder and its subfolders. If several `MEDIA_DIRS` contain a
+folder with the same name, they're shown merged as one.
+
 ## Subtitle style
 
 Under "🎨 Settings" (button next to "Update library") you can customize how subtitles look: font
@@ -82,6 +93,20 @@ before a trip). The icon shows that video's status for browser playback:
   deletes the cached browser version, if there is one, and reverts back to the "prepare" state —
   the video's original file and its Chromecast/subtitle/thumbnail caches are left untouched.
 
+## Multiple audio tracks
+
+If a video has more than one audio stream (e.g. dual-language releases), a dropdown appears in
+both the Cast and Play popups letting you pick which one to use — right next to the subtitle
+selector.
+
+Switching embedded audio tracks live, mid-playback, isn't reliably supported by either the Cast
+SDK or a plain browser `<video>` element, so the choice isn't instant: picking a track prepares
+(remuxes) that specific track into the stream before playback starts, the same way an
+incompatible codec gets remuxed. Each audio-track choice is cached separately, so switching back
+to one you already played doesn't re-transcode it. Changing the track while already playing in
+the browser reloads the `<video>` element with the new choice; on the TV you'll need to press
+"Play"/"Cast" again after changing the selection.
+
 ## Deleting videos
 
 You can delete a video from three places: the trash icon in the top-right corner of its
@@ -109,6 +134,23 @@ cleans itself up at two points:
 
 Both cleanups are silent if there's nothing to delete, and if they fail they just log a warning
 to the console without interrupting startup or the scan.
+
+## Remote shutdown
+
+Off by default. Set `SHUTDOWN_ENABLED=true` and a `SHUTDOWN_PASSWORD` in `server/.env` to add a
+"Varios" section at the bottom of "⚙️ Configuración" (renamed from "🎨 Estilo de subtítulos" — it
+now also has a heading above the subtitle-style controls) with a password field and an "Apagar el
+PC del servidor" button. If `SHUTDOWN_ENABLED` is left off (or `SHUTDOWN_PASSWORD` is empty), the
+whole section is hidden — the button never renders, and the server rejects the request either way
+regardless of what the UI shows, so this isn't just a client-side toggle.
+
+On Windows (the tested case) it runs `shutdown /s /t 5`. macOS/Linux support is best-effort
+(`sudo shutdown -h now`) and only works if the server process can `sudo` without a password
+prompt, since there's no terminal here to type one into.
+
+**This has no other authentication** — anyone who can reach the site (anyone on your WiFi, or
+anyone with the HTTPS URL if you've set that up for your phone) can attempt it, gated only by the
+one shared password. Don't enable it on a network you don't trust.
 
 ## Requirements
 
@@ -296,6 +338,18 @@ añade a la biblioteca; al desactivarla, el siguiente escaneo vuelve a dejarlos 
 "pierden" — sus miniaturas/remuxes cacheados en `server/.cache` se reutilizan al instante si los
 vuelves a incluir más adelante, solo hay que releer su metadata).
 
+## Carpetas
+
+La biblioteca refleja la estructura de carpetas dentro de `MEDIA_DIRS`: las subcarpetas se
+muestran como tarjetas de carpeta (con la miniatura del vídeo más reciente y cuántos vídeos
+contienen) junto a los vídeos de ese nivel. Al pulsar una carpeta se muestra solo su contenido,
+con un botón "Volver" y una ruta de navegación para subir de nivel. La carpeta actual forma parte
+de la URL (`/?carpeta=Series/Serie`), así que se mantiene al abrir/cerrar un vídeo y funciona con
+el botón "atrás" del navegador. Las carpetas respetan el filtro de "vídeos recientes": si todos
+sus vídeos son demasiado antiguos, la carpeta no aparece. Al buscar se listan todos los vídeos que
+coinciden dentro de la carpeta actual y sus subcarpetas. Si varias `MEDIA_DIRS` tienen una
+carpeta con el mismo nombre, se muestran fusionadas en una sola.
+
 ## Estilo de los subtítulos
 
 En "🎨 Ajustes" (botón junto a "Actualizar biblioteca") puedes personalizar cómo se ven los
@@ -340,6 +394,21 @@ reproducción en navegador:
 - ✅ (tick verde) — ya está listo para reproducirse al instante, sin transcodificar (porque ya es
   H.264/VP8/VP9, o porque ya se preparó antes y sigue en caché).
 
+## Pistas de audio múltiples
+
+Si un vídeo tiene más de una pista de audio (por ejemplo, versiones con doble idioma), aparece un
+desplegable tanto en el popup de Castear como en el de Reproducir para elegir cuál usar, justo al
+lado del selector de subtítulos.
+
+Cambiar de pista de audio en caliente, en mitad de la reproducción, no está soportado de forma
+fiable ni por el SDK de Cast ni por un `<video>` normal del navegador, así que la elección no es
+instantánea: al elegir una pista se prepara (remuxea) esa pista concreta en el stream antes de
+empezar a reproducir, igual que ocurre con un códec incompatible. Cada elección de pista de audio
+se cachea por separado, así que volver a una que ya reprodujiste antes no la vuelve a
+transcodificar. Cambiar la pista mientras ya se está reproduciendo en el navegador recarga el
+`<video>` con la nueva elección; en la TV tendrás que volver a pulsar "Reproducir"/"Castear"
+después de cambiar la selección.
+
 ## Eliminar vídeos
 
 Puedes borrar un vídeo desde tres sitios: la papelera en la esquina superior derecha de su
@@ -365,6 +434,25 @@ servidor se limpia solo en dos momentos:
 
 Ambas limpiezas son silenciosas si no hay nada que borrar, y si fallan solo avisan por consola sin
 interrumpir el arranque ni el escaneo.
+
+## Apagado remoto
+
+Desactivado por defecto. Define `SHUTDOWN_ENABLED=true` y una `SHUTDOWN_PASSWORD` en
+`server/.env` para que aparezca una sección "Varios" al final de "⚙️ Configuración" (antes "🎨
+Estilo de subtítulos" — ahora también tiene su propia cabecera encima de los controles de estilo)
+con un campo de contraseña y un botón "Apagar el PC del servidor". Si `SHUTDOWN_ENABLED` está
+desactivado (o `SHUTDOWN_PASSWORD` está vacía), la sección entera no aparece — el botón nunca se
+renderiza, y el servidor rechaza la petición en cualquier caso independientemente de lo que
+muestre la web, así que esto no es solo un interruptor del lado del cliente.
+
+En Windows (el caso probado) ejecuta `shutdown /s /t 5`. El soporte para macOS/Linux es "mejor
+esfuerzo" (`sudo shutdown -h now`) y solo funciona si el proceso del servidor puede usar `sudo`
+sin que le pida contraseña, ya que aquí no hay una terminal interactiva donde escribirla.
+
+**No tiene ninguna otra autenticación** — cualquiera que pueda acceder a la web (cualquiera en tu
+WiFi, o cualquiera con la URL HTTPS si la has configurado para el móvil) puede intentarlo,
+protegido solo por esa única contraseña compartida. No lo actives en una red en la que no
+confíes.
 
 ## Requisitos
 

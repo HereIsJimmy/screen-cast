@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
-import { fetchSubtitleStyle, saveSubtitleStyle } from "@/services/api";
+import { fetchServerInfo, fetchSubtitleStyle, saveSubtitleStyle, shutdownServerPc } from "@/services/api";
 import { applySubtitleStyleLive, castState } from "@/services/cast";
-import type { SubtitleStyle } from "@/types";
+import type { ServerInfo, SubtitleStyle } from "@/types";
 
 const router = useRouter();
 
@@ -26,6 +26,12 @@ const loading = ref(true);
 const saving = ref(false);
 const error = ref<string | null>(null);
 const justSaved = ref(false);
+
+const serverInfo = ref<ServerInfo | null>(null);
+const shutdownPassword = ref("");
+const shuttingDown = ref(false);
+const shutdownError = ref<string | null>(null);
+const shutdownDone = ref(false);
 
 const FONT_STYLE_OPTIONS: { value: SubtitleStyle["fontStyle"]; label: string }[] = [
   { value: "NORMAL", label: "Normal" },
@@ -86,8 +92,9 @@ async function load() {
   loading.value = true;
   error.value = null;
   try {
-    const current = await fetchSubtitleStyle();
+    const [current, info] = await Promise.all([fetchSubtitleStyle(), fetchServerInfo()]);
     Object.assign(style, current);
+    serverInfo.value = info;
   } catch (err) {
     error.value = (err as Error).message;
   } finally {
@@ -124,6 +131,21 @@ function resetToDefaults() {
 
 function goBack() {
   router.push({ name: "library" });
+}
+
+async function handleShutdown() {
+  if (!shutdownPassword.value || shuttingDown.value) return;
+  shuttingDown.value = true;
+  shutdownError.value = null;
+  try {
+    await shutdownServerPc(shutdownPassword.value);
+    shutdownDone.value = true;
+  } catch (err) {
+    shutdownError.value = (err as Error).message;
+  } finally {
+    shuttingDown.value = false;
+    shutdownPassword.value = "";
+  }
 }
 
 const FONT_FAMILY_CSS: Record<SubtitleStyle["fontGenericFamily"], string> = {
@@ -170,7 +192,7 @@ onMounted(load);
 <template>
   <div class="container">
     <header class="app-header">
-      <h1>🎨 Estilo de subtítulos</h1>
+      <h1>⚙️ Configuración</h1>
       <button class="btn secondary" @click="goBack">← Biblioteca</button>
     </header>
 
@@ -179,141 +201,181 @@ onMounted(load);
     <div v-if="loading" class="empty-state">Cargando…</div>
 
     <div v-else class="player-card">
-      <div class="subtitle-preview">
-        <div class="subtitle-preview-cue" :style="{ top: style.subtitlePositionPercent + '%' }">
-          <span :style="previewWindowStyle"><span :style="previewTextStyle">Así se verán tus subtítulos</span></span>
+      <div class="settings-section">
+        <h2 class="settings-section-title">Estilo de subtítulos</h2>
+
+        <div class="subtitle-preview">
+          <div class="subtitle-preview-cue" :style="{ top: style.subtitlePositionPercent + '%' }">
+            <span :style="previewWindowStyle"><span :style="previewTextStyle">Así se verán tus subtítulos</span></span>
+          </div>
         </div>
+
+        <div class="settings-grid">
+          <label class="settings-field">
+            <span>Tamaño del texto</span>
+            <input v-model.number="style.fontScale" type="range" min="0.5" max="2" step="0.1" />
+            <span class="settings-value">{{ style.fontScale.toFixed(1) }}×</span>
+          </label>
+
+          <label class="settings-field">
+            <span>Posición vertical</span>
+            <input v-model.number="style.subtitlePositionPercent" type="range" min="0" max="100" step="1" />
+            <span class="settings-value">
+              {{ style.subtitlePositionPercent }}%
+              ({{ style.subtitlePositionPercent < 34 ? "arriba" : style.subtitlePositionPercent > 66 ? "abajo" : "centro" }})
+            </span>
+          </label>
+
+          <label class="settings-field">
+            <span>Estilo de fuente</span>
+            <select v-model="style.fontStyle">
+              <option v-for="opt in FONT_STYLE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+            </select>
+          </label>
+
+          <label class="settings-field">
+            <span>Tipo de letra</span>
+            <select v-model="style.fontGenericFamily">
+              <option v-for="opt in FONT_FAMILY_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+            </select>
+          </label>
+
+          <div class="settings-field">
+            <span>Color del texto</span>
+            <div class="color-row">
+              <input type="color" :value="hexOf(style.foregroundColor)" @input="setHex('foregroundColor', $event)" />
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                :value="alphaOf(style.foregroundColor)"
+                @input="setAlpha('foregroundColor', $event)"
+              />
+              <span class="settings-value">{{ Math.round(alphaOf(style.foregroundColor) * 100) }}%</span>
+            </div>
+          </div>
+
+          <div class="settings-field">
+            <span>Fondo tras el texto</span>
+            <div class="color-row">
+              <input type="color" :value="hexOf(style.backgroundColor)" @input="setHex('backgroundColor', $event)" />
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                :value="alphaOf(style.backgroundColor)"
+                @input="setAlpha('backgroundColor', $event)"
+              />
+              <span class="settings-value">{{ Math.round(alphaOf(style.backgroundColor) * 100) }}%</span>
+            </div>
+          </div>
+
+          <label class="settings-field">
+            <span>Borde del texto</span>
+            <select v-model="style.edgeType">
+              <option v-for="opt in EDGE_TYPE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+            </select>
+          </label>
+
+          <div class="settings-field" v-if="style.edgeType !== 'NONE'">
+            <span>Color del borde</span>
+            <div class="color-row">
+              <input type="color" :value="hexOf(style.edgeColor)" @input="setHex('edgeColor', $event)" />
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                :value="alphaOf(style.edgeColor)"
+                @input="setAlpha('edgeColor', $event)"
+              />
+              <span class="settings-value">{{ Math.round(alphaOf(style.edgeColor) * 100) }}%</span>
+            </div>
+          </div>
+
+          <label class="settings-field">
+            <span>Caja de subtítulos</span>
+            <select v-model="style.windowType">
+              <option v-for="opt in WINDOW_TYPE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+            </select>
+          </label>
+
+          <div class="settings-field" v-if="style.windowType !== 'NONE'">
+            <span>Color de la caja</span>
+            <div class="color-row">
+              <input type="color" :value="hexOf(style.windowColor)" @input="setHex('windowColor', $event)" />
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                :value="alphaOf(style.windowColor)"
+                @input="setAlpha('windowColor', $event)"
+              />
+              <span class="settings-value">{{ Math.round(alphaOf(style.windowColor) * 100) }}%</span>
+            </div>
+          </div>
+
+          <label class="settings-field" v-if="style.windowType === 'ROUNDED_CORNERS'">
+            <span>Redondeo de esquinas</span>
+            <input v-model.number="style.windowRoundedCornerRadius" type="range" min="0" max="32" step="1" />
+            <span class="settings-value">{{ style.windowRoundedCornerRadius }}px</span>
+          </label>
+        </div>
+
+        <div class="controls-row">
+          <button class="btn" :disabled="saving" @click="save">
+            {{ saving ? "Guardando…" : "Guardar" }}
+          </button>
+          <button class="btn secondary" :disabled="saving" @click="resetToDefaults">Restablecer valores</button>
+          <span v-if="justSaved" class="badge" style="background: #1f3a24; color: #7fd18a">Guardado ✓</span>
+        </div>
+
+        <p class="settings-hint">
+          Se aplica a los subtítulos de todos los vídeos. Si ahora mismo estás casteando algo, el cambio se envía a la
+          TV en cuanto guardas; si no, se aplicará la próxima vez que le des a "Castear". La posición vertical es la
+          excepción: al ir incrustada en el propio archivo de subtítulos, no se actualiza en caliente — se aplicará la
+          próxima vez que cambies de pista de subtítulos o vuelvas a castear.
+        </p>
       </div>
 
-      <div class="settings-grid">
-        <label class="settings-field">
-          <span>Tamaño del texto</span>
-          <input v-model.number="style.fontScale" type="range" min="0.5" max="2" step="0.1" />
-          <span class="settings-value">{{ style.fontScale.toFixed(1) }}×</span>
-        </label>
+      <div v-if="serverInfo?.shutdownEnabled" class="settings-section">
+        <h2 class="settings-section-title">Varios</h2>
 
-        <label class="settings-field">
-          <span>Posición vertical</span>
-          <input v-model.number="style.subtitlePositionPercent" type="range" min="0" max="100" step="1" />
-          <span class="settings-value">
-            {{ style.subtitlePositionPercent }}%
-            ({{ style.subtitlePositionPercent < 34 ? "arriba" : style.subtitlePositionPercent > 66 ? "abajo" : "centro" }})
-          </span>
-        </label>
+        <p v-if="shutdownDone" class="settings-hint">
+          El PC del servidor se está apagando… esta página dejará de responder en unos segundos.
+        </p>
 
-        <label class="settings-field">
-          <span>Estilo de fuente</span>
-          <select v-model="style.fontStyle">
-            <option v-for="opt in FONT_STYLE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-          </select>
-        </label>
-
-        <label class="settings-field">
-          <span>Tipo de letra</span>
-          <select v-model="style.fontGenericFamily">
-            <option v-for="opt in FONT_FAMILY_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-          </select>
-        </label>
-
-        <div class="settings-field">
-          <span>Color del texto</span>
-          <div class="color-row">
-            <input type="color" :value="hexOf(style.foregroundColor)" @input="setHex('foregroundColor', $event)" />
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.05"
-              :value="alphaOf(style.foregroundColor)"
-              @input="setAlpha('foregroundColor', $event)"
-            />
-            <span class="settings-value">{{ Math.round(alphaOf(style.foregroundColor) * 100) }}%</span>
+        <template v-else>
+          <div class="settings-grid">
+            <label class="settings-field">
+              <span>Shutdown</span>
+              <input
+                v-model="shutdownPassword"
+                type="password"
+                autocomplete="off"
+                placeholder="Contraseña de apagado"
+                @keyup.enter="handleShutdown"
+              />
+            </label>
           </div>
-        </div>
 
-        <div class="settings-field">
-          <span>Fondo tras el texto</span>
-          <div class="color-row">
-            <input type="color" :value="hexOf(style.backgroundColor)" @input="setHex('backgroundColor', $event)" />
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.05"
-              :value="alphaOf(style.backgroundColor)"
-              @input="setAlpha('backgroundColor', $event)"
-            />
-            <span class="settings-value">{{ Math.round(alphaOf(style.backgroundColor) * 100) }}%</span>
+          <div class="controls-row">
+            <button
+              class="btn danger"
+              type="button"
+              :disabled="shuttingDown || !shutdownPassword"
+              @click="handleShutdown"
+            >
+              {{ shuttingDown ? "Apagando…" : "Apagar el PC del servidor" }}
+            </button>
           </div>
-        </div>
 
-        <label class="settings-field">
-          <span>Borde del texto</span>
-          <select v-model="style.edgeType">
-            <option v-for="opt in EDGE_TYPE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-          </select>
-        </label>
-
-        <div class="settings-field" v-if="style.edgeType !== 'NONE'">
-          <span>Color del borde</span>
-          <div class="color-row">
-            <input type="color" :value="hexOf(style.edgeColor)" @input="setHex('edgeColor', $event)" />
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.05"
-              :value="alphaOf(style.edgeColor)"
-              @input="setAlpha('edgeColor', $event)"
-            />
-            <span class="settings-value">{{ Math.round(alphaOf(style.edgeColor) * 100) }}%</span>
-          </div>
-        </div>
-
-        <label class="settings-field">
-          <span>Caja de subtítulos</span>
-          <select v-model="style.windowType">
-            <option v-for="opt in WINDOW_TYPE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-          </select>
-        </label>
-
-        <div class="settings-field" v-if="style.windowType !== 'NONE'">
-          <span>Color de la caja</span>
-          <div class="color-row">
-            <input type="color" :value="hexOf(style.windowColor)" @input="setHex('windowColor', $event)" />
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.05"
-              :value="alphaOf(style.windowColor)"
-              @input="setAlpha('windowColor', $event)"
-            />
-            <span class="settings-value">{{ Math.round(alphaOf(style.windowColor) * 100) }}%</span>
-          </div>
-        </div>
-
-        <label class="settings-field" v-if="style.windowType === 'ROUNDED_CORNERS'">
-          <span>Redondeo de esquinas</span>
-          <input v-model.number="style.windowRoundedCornerRadius" type="range" min="0" max="32" step="1" />
-          <span class="settings-value">{{ style.windowRoundedCornerRadius }}px</span>
-        </label>
+          <p v-if="shutdownError" class="error-box">{{ shutdownError }}</p>
+        </template>
       </div>
-
-      <div class="controls-row">
-        <button class="btn" :disabled="saving" @click="save">
-          {{ saving ? "Guardando…" : "Guardar" }}
-        </button>
-        <button class="btn secondary" :disabled="saving" @click="resetToDefaults">Restablecer valores</button>
-        <span v-if="justSaved" class="badge" style="background: #1f3a24; color: #7fd18a">Guardado ✓</span>
-      </div>
-
-      <p class="settings-hint">
-        Se aplica a los subtítulos de todos los vídeos. Si ahora mismo estás casteando algo, el cambio se envía a la
-        TV en cuanto guardas; si no, se aplicará la próxima vez que le des a "Castear". La posición vertical es la
-        excepción: al ir incrustada en el propio archivo de subtítulos, no se actualiza en caliente — se aplicará la
-        próxima vez que cambies de pista de subtítulos o vuelvas a castear.
-      </p>
     </div>
   </div>
 </template>

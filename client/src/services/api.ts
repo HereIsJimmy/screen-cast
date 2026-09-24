@@ -40,9 +40,42 @@ export function fetchServerInfo(): Promise<ServerInfo> {
   return request("/server-info");
 }
 
-export function prepareVideo(id: string, opts?: { forBrowser?: boolean }): Promise<{ ready: boolean }> {
-  const suffix = opts?.forBrowser ? "?target=browser" : "";
-  return request(`/videos/${id}/prepare${suffix}`, { method: "POST" });
+/**
+ * Shuts down the PC the server runs on (see server/.env's SHUTDOWN_ENABLED /
+ * SHUTDOWN_PASSWORD). Only ever exposed in the UI when
+ * serverInfo.shutdownEnabled is true — the server itself still enforces
+ * both the flag and the password regardless.
+ */
+export function shutdownServerPc(password: string): Promise<{ ok: boolean }> {
+  return request("/system/shutdown", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+}
+
+/**
+ * Builds the `?target=browser&audio=N` query string shared by prepareVideo
+ * and videoStreamPath. `audioTrackIndex` is only included when explicitly
+ * passed (checked with `!== undefined`, not truthiness — 0 is a valid,
+ * meaningful track index): omitting it entirely means "use whichever track
+ * the server considers the default" (see VideoDTO.defaultAudioTrackIndex),
+ * which is what callers that don't offer an audio-track choice (e.g. the
+ * library grid's "prepare ahead" button) rely on.
+ */
+function buildStreamQuery(opts?: { forBrowser?: boolean; audioTrackIndex?: number }): string {
+  const params = new URLSearchParams();
+  if (opts?.forBrowser) params.set("target", "browser");
+  if (opts?.audioTrackIndex !== undefined) params.set("audio", String(opts.audioTrackIndex));
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
+}
+
+export function prepareVideo(
+  id: string,
+  opts?: { forBrowser?: boolean; audioTrackIndex?: number }
+): Promise<{ ready: boolean }> {
+  return request(`/videos/${id}/prepare${buildStreamQuery(opts)}`, { method: "POST" });
 }
 
 /** Deletes a video's cached browser remux, undoing prepareVideo({ forBrowser: true }). */
@@ -68,9 +101,8 @@ export function toAbsoluteMediaUrl(serverInfo: ServerInfo, path: string): string
  * Chromecast but not in most desktop browsers, so local playback needs a
  * separately-transcoded stream from the one handed to the Cast SDK.
  */
-export function videoStreamPath(id: string, opts?: { forBrowser?: boolean }): string {
-  const suffix = opts?.forBrowser ? "?target=browser" : "";
-  return `/videos/${id}/stream${suffix}`;
+export function videoStreamPath(id: string, opts?: { forBrowser?: boolean; audioTrackIndex?: number }): string {
+  return `/videos/${id}/stream${buildStreamQuery(opts)}`;
 }
 
 export function subtitlePath(id: string, index: number, opts?: { forBrowser?: boolean }): string {

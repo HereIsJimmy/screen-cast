@@ -51,25 +51,112 @@ const activeModal = computed<"player" | "watch" | null>(() => {
 });
 
 function closeModal() {
-  router.push({ name: "library" });
+  // Keep ?carpeta= so closing the popup lands back in the same folder.
+  router.push({ name: "library", query: route.query });
 }
+
+// Folder navigation is derived entirely from each video's relativePath —
+// the server doesn't know about folders at all. Since the server only
+// indexes videos inside the "recent" window (unless the filter is on),
+// a folder whose videos are all too old simply never shows up. With several
+// MEDIA_DIRS, subfolders that share a name/path are merged into one.
+// The current folder lives in the URL (?carpeta=a/b) so it's deep-linkable
+// and the browser back button walks back up the tree.
+interface FolderItem {
+  name: string;
+  /** Path segments from the library root, e.g. ["Series", "Show"]. */
+  path: string[];
+  videoCount: number;
+  /** Newest video inside (at any depth) — used for the cover thumbnail and sorting. */
+  newest: VideoDTO;
+}
+
+/** Splits a relativePath (Windows or POSIX separators) into its folder segments, without the file name. */
+function folderSegments(video: VideoDTO): string[] {
+  return video.relativePath.split(/[\\/]+/).filter(Boolean).slice(0, -1);
+}
+
+const currentPath = computed<string[]>(() => {
+  const raw = route.query.carpeta;
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return value ? value.split("/").filter(Boolean) : [];
+});
+
+function isInsidePath(segments: string[], path: string[]): boolean {
+  return path.every((part, i) => segments[i] === part);
+}
+
+/** Every video under the current folder, at any depth (in the server's newest-first order). */
+const videosUnderCurrentPath = computed(() =>
+  videos.value.filter((video) => isInsidePath(folderSegments(video), currentPath.value))
+);
+
+const currentFolders = computed<FolderItem[]>(() => {
+  const depth = currentPath.value.length;
+  const byName = new Map<string, FolderItem>();
+  for (const video of videosUnderCurrentPath.value) {
+    const segments = folderSegments(video);
+    if (segments.length <= depth) continue;
+    const name = segments[depth]!;
+    const existing = byName.get(name);
+    if (existing) {
+      existing.videoCount += 1;
+      if (video.mtimeMs > existing.newest.mtimeMs) existing.newest = video;
+    } else {
+      byName.set(name, { name, path: [...currentPath.value, name], videoCount: 1, newest: video });
+    }
+  }
+  // Newest folder first, matching how videos themselves are ordered.
+  return Array.from(byName.values()).sort((a, b) => b.newest.mtimeMs - a.newest.mtimeMs);
+});
+
+const currentVideos = computed(() =>
+  videosUnderCurrentPath.value.filter((video) => folderSegments(video).length === currentPath.value.length)
+);
+
+function openFolder(folder: FolderItem) {
+  searchQuery.value = "";
+  router.push({ name: "library", query: { carpeta: folder.path.join("/") } });
+}
+
+function goToFolderPath(path: string[]) {
+  router.push({ name: "library", query: path.length ? { carpeta: path.join("/") } : {} });
+}
+
+function goUpOneLevel() {
+  goToFolderPath(currentPath.value.slice(0, -1));
+}
+
+// While searching, folders are flattened: every matching video inside the
+// current folder (including its subfolders) is listed directly, so a search
+// from the top level still finds everything.
+const isSearching = computed(() => searchQuery.value.trim() !== "");
+
+const filteredFolders = computed(() => (isSearching.value ? [] : currentFolders.value));
 
 const filteredVideos = computed(() => {
   const q = searchQuery.value.trim().toLowerCase();
-  if (!q) return videos.value;
-  return videos.value.filter((video) => video.title.toLowerCase().includes(q));
+  if (!q) return currentVideos.value;
+  return videosUnderCurrentPath.value.filter((video) => video.title.toLowerCase().includes(q));
 });
 
-const visibleVideos = computed(() => filteredVideos.value.slice(0, visibleCount.value));
-const hasMoreVideos = computed(() => visibleCount.value < filteredVideos.value.length);
+const totalItems = computed(() => filteredFolders.value.length + filteredVideos.value.length);
+
+// Folders always come first; pagination counts folders and videos together.
+const visibleFolders = computed(() => filteredFolders.value.slice(0, visibleCount.value));
+const visibleVideos = computed(() =>
+  filteredVideos.value.slice(0, Math.max(0, visibleCount.value - filteredFolders.value.length))
+);
+const hasMoreVideos = computed(() => visibleCount.value < totalItems.value);
 
 function loadMoreVideos() {
-  visibleCount.value = Math.min(visibleCount.value + PAGE_SIZE, filteredVideos.value.length);
+  visibleCount.value = Math.min(visibleCount.value + PAGE_SIZE, totalItems.value);
 }
 
-// A new search (or a fresh scan result) should always start back at the top
-// page rather than keeping whatever count scrolling had reached before.
-watch([searchQuery, videos], () => {
+// A new search, a fresh scan result or entering another folder should
+// always start back at the top page rather than keeping whatever count
+// scrolling had reached before.
+watch([searchQuery, videos, currentPath], () => {
   visibleCount.value = PAGE_SIZE;
 });
 
@@ -139,6 +226,11 @@ async function prepareForBrowser(video: VideoDTO) {
   preparingVideos.add(video.id);
   error.value = null;
   try {
+    // No audioTrackIndex here on purpose: the grid has no per-video track
+    // picker, so this leaves it to the server's own default
+    // (video.defaultAudioTrackIndex — e.g. Japanese for a dual-audio
+    // release), the same one isBrowserReady/deleteBrowserCache below check
+    // against.
     await prepareVideo(video.id, { forBrowser: true });
     // Optimistic update — video.browserReady would otherwise only refresh on
     // the next /api/library fetch (a manual rescan), so the tick wouldn't
@@ -215,11 +307,11 @@ function onVideoDeleted(id: string) {
 }
 
 function goToCast(video: VideoDTO) {
-  router.push({ name: "player", params: { id: video.id } });
+  router.push({ name: "player", params: { id: video.id }, query: route.query });
 }
 
 function goToWatch(video: VideoDTO) {
-  router.push({ name: "watch", params: { id: video.id } });
+  router.push({ name: "watch", params: { id: video.id }, query: route.query });
 }
 
 onMounted(async () => {
@@ -297,8 +389,24 @@ onBeforeUnmount(() => {
         </button>
 
         <button class="btn secondary" @click="router.push({ name: 'settings' })">
-          <span class="icon emoji">🎨</span>
-          <span class="btn-label">Ajustes</span>
+          <svg
+            class="icon"
+            viewBox="0 0 24 24"
+            width="16"
+            height="16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="3"></circle>
+            <path
+              d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+            ></path>
+          </svg>
+          <span class="btn-label">Configuración</span>
         </button>
       </div>
     </header>
@@ -310,6 +418,34 @@ onBeforeUnmount(() => {
       placeholder="Buscar vídeos por título…"
       aria-label="Buscar vídeos"
     />
+
+    <nav v-if="currentPath.length > 0" class="folder-bar" aria-label="Carpeta actual">
+      <button class="btn secondary" type="button" title="Volver a la carpeta anterior" @click="goUpOneLevel">
+        <svg
+          class="icon"
+          viewBox="0 0 24 24"
+          width="16"
+          height="16"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <line x1="19" y1="12" x2="5" y2="12"></line>
+          <polyline points="12 19 5 12 12 5"></polyline>
+        </svg>
+        <span>Volver</span>
+      </button>
+      <ol class="breadcrumb">
+        <li><a href="#" @click.prevent="goToFolderPath([])">Biblioteca</a></li>
+        <li v-for="(part, i) in currentPath" :key="i">
+          <span v-if="i === currentPath.length - 1" aria-current="page">📁 {{ part }}</span>
+          <a v-else href="#" @click.prevent="goToFolderPath(currentPath.slice(0, i + 1))">{{ part }}</a>
+        </li>
+      </ol>
+    </nav>
 
     <p v-if="error" class="error-box">{{ error }}</p>
 
@@ -323,12 +459,39 @@ onBeforeUnmount(() => {
       y pulsa el icono de actualizar.
     </div>
 
-    <div v-else-if="filteredVideos.length === 0" class="empty-state">
+    <div v-else-if="totalItems === 0 && isSearching" class="empty-state">
       Ningún vídeo coincide con «{{ searchQuery }}».
+    </div>
+
+    <div v-else-if="totalItems === 0" class="empty-state">
+      Esta carpeta no contiene vídeos
+      <template v-if="!includesOld">recientes (de los últimos {{ recentMonths }} meses)</template>.
     </div>
 
     <template v-else>
       <div class="video-grid">
+        <button
+          v-for="folder in visibleFolders"
+          :key="folder.path.join('/')"
+          type="button"
+          class="video-card folder-card"
+          :title="`Abrir carpeta «${folder.name}»`"
+          @click="openFolder(folder)"
+        >
+          <div class="video-thumb">
+            <img
+              v-if="!thumbnailFailed.has(folder.newest.id)"
+              :src="thumbnailUrl(folder.newest.id)"
+              alt=""
+              loading="lazy"
+              @error="onThumbnailError(folder.newest.id)"
+            />
+            <div v-else class="video-thumb-placeholder">📁</div>
+            <span class="folder-badge" aria-hidden="true">📁</span>
+            <span class="thumb-duration">{{ folder.videoCount }} {{ folder.videoCount === 1 ? "vídeo" : "vídeos" }}</span>
+          </div>
+          <div class="video-title">{{ folder.name }}</div>
+        </button>
         <div v-for="video in visibleVideos" :key="video.id" class="video-card">
           <div class="video-thumb">
             <img
