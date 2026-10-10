@@ -43,6 +43,24 @@ async function main() {
   app.use(cors());
   app.use(express.json());
 
+  // One line when a video/subtitle request arrives and one when it ends, so
+  // a cast stuck on "loading" shows whether the TV ever asked for the file,
+  // which byte range, and whether it hung up mid-transfer.
+  app.use("/api/videos", (req, res, next) => {
+    if (!/\/(stream|subtitles\/)/.test(req.path)) return next();
+    const started = Date.now();
+    const who = `${req.ip} ${(req.headers["user-agent"] ?? "").slice(0, 50)}`;
+    console.log(`[media] ← ${req.method} ${req.originalUrl} range=${req.headers.range ?? "-"} (${who})`);
+    res.on("close", () => {
+      const outcome = res.writableFinished ? "completa" : "cortada por el cliente";
+      console.log(
+        `[media] → ${res.statusCode} ${req.originalUrl} ${outcome} en ${Date.now() - started} ms ` +
+          `(${res.getHeader("Content-Range") ?? res.getHeader("Content-Length") ?? "?"})`
+      );
+    });
+    next();
+  });
+
   app.use("/api", libraryRouter);
   app.use("/api", streamRouter);
   app.use("/api", serverInfoRouter);

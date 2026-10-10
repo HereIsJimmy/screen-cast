@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { config } from "../config.js";
-import type { AudioTrackInfo, SubtitleTrackInfo, VideoEntry, VideoDTO } from "../types.js";
+import type { AudioTrackInfo, FfprobeStream, SubtitleTrackInfo, VideoEntry, VideoDTO } from "../types.js";
 import { probeFile } from "./ffprobe.js";
 import { deleteCacheForId, isBrowserReady, pruneOrphanedCache } from "./mediaCache.js";
 
@@ -36,6 +36,39 @@ function pickDefaultAudioTrackIndex(tracks: AudioTrackInfo[]): number {
   return tracks.find((t) => isJapaneseAudioTrack(t))?.index ?? 0;
 }
 
+function isEnglishTrack(track: { language?: string }): boolean {
+  const lang = track.language?.trim().toLowerCase() ?? "";
+  return lang === "en" || lang === "eng" || lang.startsWith("english");
+}
+
+/** "Forced"/"Signs"/"S&S" tracks only cover on-screen text, songs and foreign-language lines, not the dialogue. */
+function isForcedSubtitle(track: SubtitleTrackInfo): boolean {
+  return /forced|signs|s&s/i.test(track.title ?? "");
+}
+
+/** SDH/CC tracks add sound descriptions ("[door slams]") on top of the dialogue. */
+function isSdhSubtitle(track: SubtitleTrackInfo): boolean {
+  return /\b(sdh|cc)\b|hearing/i.test(track.title ?? "");
+}
+
+/**
+ * Picks which subtitle track is preselected when opening a video: when the
+ * file has more than one usable track, prefers an English one — a plain
+ * full-dialogue track over SDH, and anything over a "Forced"/"Signs" track
+ * (dual-audio releases often list that one first). Falls back to the first
+ * usable track, or null when there's none. Mirrors pickDefaultAudioTrackIndex.
+ */
+function pickDefaultSubtitleIndex(tracks: SubtitleTrackInfo[]): number | null {
+  const usable = tracks.filter((t) => !t.unsupported);
+  const english = usable.length > 1 ? usable.filter(isEnglishTrack) : [];
+  const best =
+    english.find((t) => !isForcedSubtitle(t) && !isSdhSubtitle(t)) ??
+    english.find((t) => !isForcedSubtitle(t)) ??
+    english[0] ??
+    usable[0];
+  return best?.index ?? null;
+}
+
 /** In-memory index of the library. Rebuilt by scanLibrary(). */
 const entries = new Map<string, VideoEntry>();
 
@@ -59,9 +92,26 @@ function titleFromRelativePath(relativePath: string): string {
     .trim();
 }
 
-function isDirectPlayCompatible(containerExt: string, videoCodec: string | null, audioCodec: string | null): boolean {
+/**
+ * True for a >8-bit video stream: a pixel format like "yuv420p10le" or
+ * "p010le", or a profile like "Main 10" / "High 10" when ffprobe didn't
+ * report the pixel format.
+ */
+function isHighBitDepth(stream: FfprobeStream): boolean {
+  if (stream.pix_fmt) return /1[0-6](le|be)$/.test(stream.pix_fmt);
+  return /\b1[0-6]\b/.test(stream.profile ?? "");
+}
+
+function isDirectPlayCompatible(
+  containerExt: string,
+  videoCodec: string | null,
+  audioCodec: string | null,
+  videoHighBitDepth: boolean
+): boolean {
   if (!videoCodec) return false;
   const v = videoCodec.toLowerCase();
+  // 10-bit H.264 (Hi10P) has no hardware decoder on the TV; 10-bit HEVC does.
+  if (videoHighBitDepth && v === "h264") return false;
   const a = audioCodec?.toLowerCase() ?? null;
 
   if ([".mp4", ".m4v"].includes(containerExt)) {
@@ -149,6 +199,7 @@ async function buildEntry(
 
   let durationSec: number | null = null;
   let videoCodec: string | null = null;
+  let videoHighBitDepth = false;
   let audioCodec: string | null = null;
   const subtitles: SubtitleTrackInfo[] = [];
   const audioTracks: AudioTrackInfo[] = [];
@@ -162,6 +213,7 @@ async function buildEntry(
     for (const stream of probe.streams) {
       if (stream.codec_type === "video" && !videoCodec) {
         videoCodec = stream.codec_name;
+        videoHighBitDepth = isHighBitDepth(stream);
       } else if (stream.codec_type === "audio") {
         if (!audioCodec) audioCodec = stream.codec_name;
         audioTracks.push({
@@ -201,8 +253,9 @@ async function buildEntry(
       durationSec,
       videoCodec,
       audioCodec,
+      videoHighBitDepth,
       containerExt,
-      directPlayCompatible: isDirectPlayCompatible(containerExt, videoCodec, audioCodec),
+      directPlayCompatible: isDirectPlayCompatible(containerExt, videoCodec, audioCodec, videoHighBitDepth),
       subtitles,
       audioTracks,
       defaultAudioTrackIndex: pickDefaultAudioTrackIndex(audioTracks),
@@ -412,5 +465,6 @@ export function toDTO(entry: VideoEntry): VideoDTO {
       title: a.title,
     })),
     defaultAudioTrackIndex: entry.defaultAudioTrackIndex,
+    defaultSubtitleIndex: pickDefaultSubtitleIndex(entry.subtitles),
   };
 }

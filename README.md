@@ -81,6 +81,11 @@ the video isn't already H.264, it transcodes it to H.264 the first time you hit 
 take a few seconds — you'll see "Preparing video…") and caches it separately, without touching
 the file served to the TV.
 
+**10-bit video** (common in releases): HEVC Main 10 is still sent to the TV as-is, but for
+the browser it's transcoded to 8-bit H.264. 10-bit H.264 ("Hi10P") is transcoded for both, since
+neither TVs nor browsers can decode it. That transcode takes a couple of minutes for a 24-minute
+episode (roughly 10× real time) while "Preparing video…" is shown.
+
 **Preparing in advance:** since that first transcode can take a while, every thumbnail in the
 library has a button in its top-left corner to kick it off ahead of time, without needing to open
 the "Play" popup — handy for getting several videos ready in advance (e.g. from your phone,
@@ -106,6 +111,11 @@ incompatible codec gets remuxed. Each audio-track choice is cached separately, s
 to one you already played doesn't re-transcode it. Changing the track while already playing in
 the browser reloads the `<video>` element with the new choice; on the TV you'll need to press
 "Play"/"Cast" again after changing the selection.
+
+**Default selection:** when there are several audio tracks, the Japanese one is preselected. When
+there are several subtitle tracks, the English full-dialogue one is preselected: "Forced"/"Signs"/
+"S&S" tracks (on-screen text and songs only) are skipped, and the plain track is preferred over
+SDH (with sound descriptions). You can always change either in the dropdowns.
 
 ## Deleting videos
 
@@ -383,6 +393,12 @@ TV, una caché **independiente** para reproducción en navegador: si el vídeo n
 transcodifica a H.264 la primera vez que le das a "Reproducir" (puede tardar unos segundos, verás
 "Preparando vídeo…") y lo cachea aparte, sin tocar el archivo que se le sirve a la TV.
 
+**Vídeo de 10 bits** (habitual en releases de): el HEVC Main 10 se sigue enviando tal cual
+a la TV, pero para el navegador se transcodifica a H.264 de 8 bits. El H.264 de 10 bits ("Hi10P")
+se transcodifica para ambos, porque ni las TVs ni los navegadores pueden decodificarlo. Esa
+transcodificación tarda un par de minutos en un episodio de 24 minutos (unas 10× la velocidad
+real) mientras se muestra "Preparando vídeo…".
+
 **Preparar con antelación:** como esa primera transcodificación puede tardar, cada miniatura de la
 biblioteca tiene un botón en la esquina superior izquierda para lanzarla de antemano, sin necesidad
 de abrir el popup de "Reproducir" — útil para dejar varios vídeos listos con tiempo antes de verlos
@@ -408,6 +424,11 @@ se cachea por separado, así que volver a una que ya reprodujiste antes no la vu
 transcodificar. Cambiar la pista mientras ya se está reproduciendo en el navegador recarga el
 `<video>` con la nueva elección; en la TV tendrás que volver a pulsar "Reproducir"/"Castear"
 después de cambiar la selección.
+
+**Selección por defecto:** si hay varias pistas de audio, se preselecciona la japonesa. Si hay
+varias pistas de subtítulos, se preselecciona la inglesa con los diálogos completos: se evitan las
+pistas "Forced"/"Signs"/"S&S" (solo carteles y canciones) y se prefiere la normal a la SDH (con
+descripciones de sonidos). Siempre puedes cambiarlas en los desplegables.
 
 ## Eliminar vídeos
 

@@ -29,6 +29,12 @@ export interface VideoEntry {
   durationSec: number | null;
   videoCodec: string | null;
   audioCodec: string | null;
+  /**
+   * True when the video stream is more than 8 bits per sample (e.g. HEVC
+   * Main 10, H.264 Hi10P). Browser playback always transcodes these to 8-bit
+   * H.264; Cast copies HEVC Main 10 but transcodes 10-bit H.264.
+   */
+  videoHighBitDepth: boolean;
   containerExt: string;
   /** True when the file can be sent to the TV as-is (compatible container + codecs). */
   directPlayCompatible: boolean;
@@ -70,12 +76,16 @@ export interface VideoDTO {
     title?: string;
   }[];
   defaultAudioTrackIndex: number;
+  /** Subtitle track preselected in the UI (prefers English, see pickDefaultSubtitleIndex), or null when none is usable. */
+  defaultSubtitleIndex: number | null;
 }
 
 export interface FfprobeStream {
   index: number;
   codec_type: string;
   codec_name: string;
+  profile?: string;
+  pix_fmt?: string;
   tags?: Record<string, string>;
 }
 

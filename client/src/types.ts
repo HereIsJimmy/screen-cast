@@ -27,6 +27,8 @@ export interface VideoDTO {
   audioTracks: AudioTrackDTO[];
   /** Which entry of audioTracks the server uses when a request doesn't specify one (e.g. prefers a Japanese track for dual-audio releases). */
   defaultAudioTrackIndex: number;
+  /** Subtitle track to preselect (the server prefers a full-dialogue English track), or null when none is usable. */
+  defaultSubtitleIndex: number | null;
 }
 
 export interface ServerInfo {

@@ -32,10 +32,15 @@ const WEBM_BROWSER_AUDIO_CODECS = new Set(["opus", "vorbis"]);
 /** Playback target: "cast" (Chromecast/TV) or "browser" (local <video> tag). */
 export type PlayTarget = "cast" | "browser";
 
+/** 10-bit (or more) H.264, aka Hi10P: common in releases, decodable by neither TVs nor browsers. */
+function isHighBitDepthH264(entry: VideoEntry): boolean {
+  return entry.videoHighBitDepth && entry.videoCodec?.toLowerCase() === "h264";
+}
+
 function isBrowserDirectPlayable(entry: VideoEntry): boolean {
   const v = entry.videoCodec?.toLowerCase() ?? null;
   const a = entry.audioCodec?.toLowerCase() ?? null;
-  if (!v) return false;
+  if (!v || entry.videoHighBitDepth) return false;
   if ([".mp4", ".m4v"].includes(entry.containerExt)) {
     return BROWSER_VIDEO_DIRECT_CODECS.has(v) && (a === null || AUDIO_COPY_CODECS.has(a));
   }
@@ -111,7 +116,7 @@ function runFfmpeg(args: string[]): Promise<void> {
     proc.on("error", reject);
     proc.on("close", (code) => {
       if (code === 0) resolve();
-      else reject(new Error(`ffmpeg salió con código ${code}\n${stderr}`));
+      else reject(new Error(`ffmpeg exited with code ${code}\n${stderr}`));
     });
   });
 }
@@ -270,8 +275,8 @@ async function getCachedRemux(
 
   if ((!opts.videoCopyOk || !opts.audioCopyOk) && !config.allowTranscode) {
     throw new Error(
-      `"${entry.relativePath}" usa códecs no compatibles con ${opts.targetLabel} ` +
-        `(vídeo: ${entry.videoCodec ?? "?"}, audio: ${opts.audioCodecLabel}) y ALLOW_TRANSCODE está desactivado.`
+      `"${entry.relativePath}" uses codecs not supported by ${opts.targetLabel} ` +
+        `(video: ${entry.videoCodec ?? "?"}, audio: ${opts.audioCodecLabel}) and ALLOW_TRANSCODE is off.`
     );
   }
 
@@ -282,9 +287,17 @@ async function getCachedRemux(
     // *before* the extension instead. "-f mp4" below is a belt-and-braces
     // backup in case ffmpeg ever gets a weird extension again.
     const tmpPath = path.join(config.cacheDir, `${cacheKey(entry)}${opts.suffix}.tmp.mp4`);
+    // A copied HEVC stream gets ffmpeg's default "hev1" sample entry in MP4,
+    // which Google TV / Chromecast receivers often won't play — they sit on
+    // the loading spinner forever without reporting an error. "hvc1" is the
+    // tag every HEVC-capable player accepts.
+    const isHevc = ["hevc", "h265"].includes(entry.videoCodec?.toLowerCase() ?? "");
     const videoArgs = opts.videoCopyOk
-      ? ["-c:v", "copy"]
-      : ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"];
+      ? ["-c:v", "copy", ...(isHevc ? ["-tag:v", "hvc1"] : [])]
+      : // "-pix_fmt yuv420p" matters for 10-bit sources: without it libx264
+        // keeps the bit depth and outputs H.264 High 10, which neither
+        // Chromecast nor browsers can decode either.
+        ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"];
     const audioArgs = opts.audioCopyOk ? ["-c:a", "copy"] : ["-c:a", "aac", "-b:a", "192k"];
 
     try {
@@ -298,6 +311,10 @@ async function getCachedRemux(
         `0:a:${opts.audioTrackIndex}?`,
         ...videoArgs,
         ...audioArgs,
+        // MKV chapters would otherwise become an extra MP4 text/data track,
+        // which only gets in the receiver's way (we serve subtitles as VTT).
+        "-map_chapters",
+        "-1",
         "-movflags",
         "+faststart",
         "-f",
@@ -342,9 +359,11 @@ export async function getPlayablePath(
     }
     return getCachedRemux(entry, {
       suffix: `-browser${audioSuffix}`,
-      videoCopyOk: entry.videoCodec ? BROWSER_VIDEO_COPY_CODECS.has(entry.videoCodec.toLowerCase()) : false,
+      videoCopyOk:
+        !entry.videoHighBitDepth &&
+        (entry.videoCodec ? BROWSER_VIDEO_COPY_CODECS.has(entry.videoCodec.toLowerCase()) : false),
       audioCopyOk: selectedAudioCodec ? AUDIO_COPY_CODECS.has(selectedAudioCodec.toLowerCase()) : true,
-      targetLabel: "este navegador",
+      targetLabel: "this browser",
       audioTrackIndex,
       audioCodecLabel: selectedAudioCodec ?? "?",
     });
@@ -361,7 +380,11 @@ export async function getPlayablePath(
   // while producing a file the TV still can't play.
   return getCachedRemux(entry, {
     suffix: audioSuffix,
-    videoCopyOk: entry.videoCodec ? VIDEO_COPY_CODECS.has(entry.videoCodec.toLowerCase()) : false,
+    // HEVC Main 10 is fine on the TV, but 10-bit H.264 (Hi10P) has no
+    // hardware decoder there, so that one is transcoded to 8-bit.
+    videoCopyOk:
+      !isHighBitDepthH264(entry) &&
+      (entry.videoCodec ? VIDEO_COPY_CODECS.has(entry.videoCodec.toLowerCase()) : false),
     audioCopyOk: selectedAudioCodec ? AUDIO_COPY_CODECS.has(selectedAudioCodec.toLowerCase()) : true,
     targetLabel: "Chromecast",
     audioTrackIndex,
@@ -407,7 +430,7 @@ export async function getSubtitleVttPath(entry: VideoEntry, subtitleIndex: numbe
  */
 export async function getThumbnailPath(entry: VideoEntry): Promise<string> {
   if (!entry.videoCodec) {
-    throw new Error(`"${entry.relativePath}" no tiene pista de vídeo, no se puede generar miniatura.`);
+    throw new Error(`"${entry.relativePath}" has no video track, so no thumbnail can be generated.`);
   }
 
   await ensureCacheDir();

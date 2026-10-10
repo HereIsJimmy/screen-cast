@@ -69,8 +69,7 @@ async function load() {
   try {
     const v = await fetchVideo(videoId.value);
     video.value = v;
-    const first = v.subtitles.find((s) => !s.unsupported);
-    selectedSubtitle.value = first ? first.index : "";
+    selectedSubtitle.value = v.defaultSubtitleIndex ?? "";
     settingDefaultAudioTrack = true;
     selectedAudioTrack.value = v.defaultAudioTrackIndex;
     await prepareForBrowser();

@@ -57,10 +57,7 @@ async function load() {
     const [v, info] = await Promise.all([fetchVideo(videoId.value), fetchServerInfo()]);
     video.value = v;
     serverInfo.value = info;
-    if (v.subtitles.length > 0) {
-      const first = v.subtitles.find((s) => !s.unsupported);
-      selectedSubtitle.value = first ? first.index : "";
-    }
+    selectedSubtitle.value = v.defaultSubtitleIndex ?? "";
     selectedAudioTrack.value = v.defaultAudioTrackIndex;
   } catch (err) {
     localError.value = (err as Error).message;
