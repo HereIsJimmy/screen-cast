@@ -160,6 +160,68 @@ function buildSubtitleTracks(serverInfo: ServerInfo, video: VideoDTO): chrome.ca
     });
 }
 
+/** Whether the page still counts as "responding to a click" (Chrome's transient user activation). */
+function hasUserActivation(): boolean {
+  // navigator.userActivation is missing in older browsers; assume yes there
+  // and let Chrome decide.
+  return navigator.userActivation?.isActive ?? true;
+}
+
+function sessionErrorMessage(code: string): string {
+  switch (code) {
+    case chrome.cast.ErrorCode.CANCEL:
+      return "Casting was cancelled (the TV selection dialog was closed).";
+    case chrome.cast.ErrorCode.RECEIVER_UNAVAILABLE:
+      return "No TVs/Chromecasts were found on your network.";
+    case chrome.cast.ErrorCode.TIMEOUT:
+      return "The TV didn't respond in time. Click Cast again.";
+    default:
+      return `Couldn't start the cast session (${code}). Click Cast again.`;
+  }
+}
+
+/**
+ * Returns the current Cast session, opening Chrome's TV selection dialog
+ * first if there isn't one. Call this straight from a click handler,
+ * *before* any slow work (like preparing the video): Chrome only opens the
+ * dialog while the page still has "user activation" from the click, which
+ * expires after a few seconds — awaiting a long remux first is what made
+ * the dialog sometimes never appear and the request time out instead.
+ *
+ * Retries once on failures other than the user closing the dialog, but
+ * only while the click still counts: a retry without user activation can't
+ * open the dialog either, so it would just fail again.
+ */
+export async function ensureCastSession(): Promise<cast.framework.CastSession> {
+  await initializeCast();
+  castState.error = null;
+
+  const context = cast.framework.CastContext.getInstance();
+  const existing = context.getCurrentSession();
+  if (existing) return existing;
+
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await context.requestSession();
+      break;
+    } catch (err) {
+      // requestSession rejects with a chrome.cast.ErrorCode string.
+      const code = typeof err === "string" ? err : String((err as { code?: string })?.code ?? err);
+      console.warn(`[cast] requestSession failed (attempt ${attempt}): ${code}`);
+      if (attempt < 2 && code !== chrome.cast.ErrorCode.CANCEL && hasUserActivation()) continue;
+      castState.error = sessionErrorMessage(code);
+      throw new Error(castState.error);
+    }
+  }
+
+  const session = context.getCurrentSession();
+  if (!session) {
+    castState.error = "There's no active cast session.";
+    throw new Error(castState.error);
+  }
+  return session;
+}
+
 /**
  * Starts (or takes over) a Cast session and tells the TV to load the given
  * video, with its subtitle tracks attached. `defaultSubtitleIndex` (the
@@ -176,26 +238,7 @@ export async function castVideo(
   defaultSubtitleIndex: number | null,
   audioTrackIndex = 0
 ): Promise<void> {
-  await initializeCast();
-  castState.error = null;
-
-  const context = cast.framework.CastContext.getInstance();
-
-  try {
-    if (!context.getCurrentSession()) {
-      await context.requestSession();
-    }
-  } catch (err) {
-    // User closed the device-selection dialog, or no devices were found.
-    castState.error = "Couldn't start the cast session (did you close the dialog, or are there no TVs nearby?).";
-    throw err;
-  }
-
-  const session = context.getCurrentSession();
-  if (!session) {
-    castState.error = "There's no active cast session.";
-    return;
-  }
+  const session = await ensureCastSession();
 
   const contentUrl = toAbsoluteMediaUrl(serverInfo, videoStreamPath(video.id, { audioTrackIndex }));
   const mediaInfo = new chrome.cast.media.MediaInfo(contentUrl, video.contentType);

@@ -5,6 +5,7 @@ import { deleteVideo, fetchServerInfo, fetchVideo, prepareVideo } from "@/servic
 import {
   castState,
   castVideo,
+  ensureCastSession,
   seekTo,
   setSubtitleTrack,
   setVolume,
@@ -69,6 +70,15 @@ async function load() {
 async function startCasting() {
   if (!video.value || !serverInfo.value) return;
   localError.value = null;
+  try {
+    // Open the TV selection dialog first, while Chrome still treats this as
+    // a response to the click — preparing first can take longer than that
+    // window, and then the dialog never shows up (see ensureCastSession).
+    await ensureCastSession();
+  } catch {
+    return; // castState.error already explains what happened
+  }
+
   preparing.value = true;
   try {
     await prepareVideo(video.value.id, { audioTrackIndex: selectedAudioTrack.value });
