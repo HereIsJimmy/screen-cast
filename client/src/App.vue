@@ -6,7 +6,7 @@ import { initializeCast } from "@/services/cast";
 // is ready by the time the user picks a video.
 onMounted(() => {
   initializeCast().catch((err) => {
-    console.warn("No se pudo inicializar Google Cast todavía:", err);
+    console.warn("Couldn't initialize Google Cast yet:", err);
   });
 });
 </script>

@@ -12,17 +12,17 @@ export const systemRouter = Router();
  */
 systemRouter.post("/system/shutdown", (req, res) => {
   if (!config.shutdownEnabled) {
-    res.status(403).json({ error: "El apagado remoto no está habilitado (SHUTDOWN_ENABLED en server/.env)." });
+    res.status(403).json({ error: "Remote shutdown isn't enabled (SHUTDOWN_ENABLED in server/.env)." });
     return;
   }
   if (!config.shutdownPassword) {
-    res.status(500).json({ error: "SHUTDOWN_PASSWORD no está configurada en server/.env." });
+    res.status(500).json({ error: "SHUTDOWN_PASSWORD isn't set in server/.env." });
     return;
   }
 
   const password = typeof req.body?.password === "string" ? req.body.password : "";
   if (!passwordsMatch(password, config.shutdownPassword)) {
-    res.status(401).json({ error: "Contraseña incorrecta." });
+    res.status(401).json({ error: "Wrong password." });
     return;
   }
 

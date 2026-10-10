@@ -203,7 +203,7 @@ button {
   }
 }
 
-/* Inside the Castear/Reproducir popups, the delete button floats in the
+/* Inside the Cast/Play popups, the delete button floats in the
    bottom-right corner of the popup (.modal-panel is its positioned
    ancestor, same as .modal-close), regardless of how tall the content
    above it is or how far it's scrolled. */

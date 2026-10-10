@@ -39,7 +39,7 @@ export interface ServerInfo {
   /** Extra HTTPS listener for opening the web UI itself as a secure context (e.g. from a phone), or null if not configured. Never used to build media URLs. */
   httpsPort: number | null;
   recentMonths: number;
-  /** Whether server/.env has SHUTDOWN_ENABLED=true — gates the "Varios" section in Configuración. */
+  /** Whether server/.env has SHUTDOWN_ENABLED=true — gates the "Miscellaneous" section in Settings. */
   shutdownEnabled: boolean;
 }
 

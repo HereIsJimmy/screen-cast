@@ -53,12 +53,12 @@ function loadSdkScript(): Promise<void> {
     }
     const script = document.createElement("script");
     script.src = SENDER_SDK_URL;
-    script.onerror = () => reject(new Error("No se pudo cargar el SDK de Google Cast."));
+    script.onerror = () => reject(new Error("Couldn't load the Google Cast SDK."));
     document.head.appendChild(script);
 
     window.__onGCastApiAvailable = (isAvailable: boolean) => {
       if (isAvailable) resolve();
-      else reject(new Error("La API de Google Cast no está disponible en este navegador."));
+      else reject(new Error("The Google Cast API isn't available in this browser."));
     };
   });
 }
@@ -75,8 +75,8 @@ export function initializeCast(): Promise<void> {
   initPromise = (async () => {
     if (!window.isSecureContext) {
       castState.error =
-        "Esta página no se está sirviendo por HTTPS. Google Cast solo funciona en un contexto seguro " +
-        "(HTTPS o localhost) — ver README, sección HTTPS.";
+        "This page isn't being served over HTTPS. Google Cast only works in a secure context " +
+        "(HTTPS or localhost) — see the README, HTTPS section.";
     }
 
     await loadSdkScript();
@@ -154,7 +154,7 @@ function buildSubtitleTracks(serverInfo: ServerInfo, video: VideoDTO): chrome.ca
       track.trackContentId = toAbsoluteMediaUrl(serverInfo, subtitlePath(video.id, sub.index));
       track.trackContentType = "text/vtt";
       track.subtype = chrome.cast.media.TextTrackType.SUBTITLES;
-      track.name = sub.title || sub.language || `Subtítulo ${sub.index + 1}`;
+      track.name = sub.title || sub.language || `Subtitle ${sub.index + 1}`;
       track.language = sub.language ?? "";
       return track;
     });
@@ -187,13 +187,13 @@ export async function castVideo(
     }
   } catch (err) {
     // User closed the device-selection dialog, or no devices were found.
-    castState.error = "No se pudo iniciar la sesión de cast (¿cancelaste el diálogo o no hay TVs cerca?).";
+    castState.error = "Couldn't start the cast session (did you close the dialog, or are there no TVs nearby?).";
     throw err;
   }
 
   const session = context.getCurrentSession();
   if (!session) {
-    castState.error = "No hay una sesión de cast activa.";
+    castState.error = "There's no active cast session.";
     return;
   }
 
@@ -208,9 +208,9 @@ export async function castVideo(
   try {
     subtitleStyle = await fetchSubtitleStyle();
     mediaInfo.textTrackStyle = buildTextTrackStyle(subtitleStyle);
-    console.log("[cast] Estilo de subtítulos aplicado al cargar:", subtitleStyle);
+    console.log("[cast] Subtitle style applied on load:", subtitleStyle);
   } catch (err) {
-    console.warn("[cast] No se pudo cargar/aplicar el estilo de subtítulos, se usará el de la TV por defecto:", err);
+    console.warn("[cast] Couldn't load/apply the subtitle style, the TV's default will be used:", err);
   }
 
   const request = new chrome.cast.media.LoadRequest(mediaInfo);
@@ -234,7 +234,7 @@ export function togglePlayPause(): void {
  * closes on the TV and `isConnected` goes back to false, so the library can
  * be cast to fresh afterwards. (`remotePlayerController.stop()` alone only
  * sends a STOP to the current media and leaves the session connected, which
- * is what caused "Detener" to look like it did nothing.)
+ * is what caused "Stop" to look like it did nothing.)
  */
 export function stopCasting(): void {
   cast.framework.CastContext.getInstance().endCurrentSession(true);
@@ -267,7 +267,7 @@ export async function setSubtitleTrack(video: VideoDTO, subtitleIndex: number | 
   try {
     subtitleStyle = await fetchSubtitleStyle();
   } catch (err) {
-    console.warn("[cast] No se pudo cargar el estilo de subtítulos al cambiar de pista:", err);
+    console.warn("[cast] Couldn't load the subtitle style when switching tracks:", err);
   }
   const request = new chrome.cast.media.EditTracksInfoRequest(
     activeTrackIds,
@@ -279,7 +279,7 @@ export async function setSubtitleTrack(video: VideoDTO, subtitleIndex: number | 
       castState.activeSubtitleIndex = subtitleIndex;
     },
     (err) => {
-      castState.error = `No se pudo cambiar de subtítulo: ${err.description ?? err.code}`;
+      castState.error = `Couldn't switch subtitles: ${err.description ?? err.code}`;
     }
   );
 }
@@ -296,8 +296,8 @@ export async function applySubtitleStyleLive(style: SubtitleStyle): Promise<void
   const media = session?.getMediaSession();
   if (!media) {
     console.warn(
-      "[cast] applySubtitleStyleLive: no hay ninguna reproducción cargada en la TV ahora mismo " +
-        "(¿le diste a Detener, o aún no has casteado nada?) — el estilo se aplicará la próxima vez que castees."
+      "[cast] applySubtitleStyleLive: nothing is loaded on the TV right now " +
+        "(did you click Stop, or haven't you cast anything yet?) — the style will apply the next time you cast."
     );
     return;
   }
@@ -309,7 +309,7 @@ export async function applySubtitleStyleLive(style: SubtitleStyle): Promise<void
     media.editTracksInfo(
       request,
       () => {
-        console.log("[cast] Estilo de subtítulos aplicado en directo:", style);
+        console.log("[cast] Subtitle style applied live:", style);
         resolve();
       },
       (err) => reject(new Error(err.description ?? String(err.code)))

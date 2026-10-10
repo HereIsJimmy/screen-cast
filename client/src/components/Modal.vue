@@ -14,7 +14,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 <template>
   <div class="modal-backdrop" @click.self="emit('close')">
     <div class="modal-panel" role="dialog" aria-modal="true">
-      <button class="modal-close" type="button" aria-label="Cerrar" @click="emit('close')">✕</button>
+      <button class="modal-close" type="button" aria-label="Close" @click="emit('close')">✕</button>
       <slot />
     </div>
   </div>

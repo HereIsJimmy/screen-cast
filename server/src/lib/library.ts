@@ -147,7 +147,7 @@ async function walk(
   try {
     dirents = await fs.readdir(dir, { withFileTypes: true });
   } catch (err) {
-    console.warn(`[library] No se pudo leer la carpeta ${dir}:`, (err as Error).message);
+    console.warn(`[library] Couldn't read folder ${dir}:`, (err as Error).message);
     return { ok: false };
   }
 
@@ -235,7 +235,7 @@ async function buildEntry(
       }
     }
   } catch (err) {
-    console.warn(`[library] ffprobe falló para ${absolutePath}:`, (err as Error).message);
+    console.warn(`[library] ffprobe failed for ${absolutePath}:`, (err as Error).message);
     return { status: "error" };
   }
 
@@ -358,15 +358,15 @@ async function doScan(options: ScanOptions): Promise<ScanResult> {
     try {
       const { removed } = await pruneOrphanedCache(new Set(entries.keys()));
       if (removed > 0) {
-        console.log(`[library] Caché: ${removed} archivo(s) de vídeos ya no presentes en la biblioteca eliminado(s).`);
+        console.log(`[library] Cache: deleted ${removed} file(s) of videos no longer in the library.`);
       }
     } catch (err) {
-      console.warn("[library] No se pudo limpiar la caché de vídeos eliminados:", (err as Error).message);
+      console.warn("[library] Couldn't clean up the cache of removed videos:", (err as Error).message);
     }
   } else if (config.mediaDirs.length > 0) {
     console.warn(
-      "[library] Se ha omitido la limpieza de caché de vídeos eliminados: no se pudieron leer todas las " +
-        "carpetas de MEDIA_DIRS en este escaneo (podrían estar temporalmente inaccesibles)."
+      "[library] Skipped cleaning up the cache of removed videos: not every MEDIA_DIRS folder could be " +
+        "read in this scan (they may be temporarily unreachable)."
     );
   }
 
@@ -414,7 +414,7 @@ export function getEntry(id: string): VideoEntry | undefined {
 export async function deleteVideo(id: string): Promise<void> {
   const entry = entries.get(id);
   if (!entry) {
-    throw new Error("Vídeo no encontrado");
+    throw new Error("Video not found");
   }
 
   try {

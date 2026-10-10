@@ -19,9 +19,9 @@ const emit = defineEmits<{ confirm: []; close: [] }>();
       <p>{{ message }}</p>
       <p v-if="error" class="error-box">{{ error }}</p>
       <div class="confirm-actions">
-        <button class="btn secondary" type="button" :disabled="busy" @click="emit('close')">Cancelar</button>
+        <button class="btn secondary" type="button" :disabled="busy" @click="emit('close')">Cancel</button>
         <button class="btn danger" type="button" :disabled="busy" @click="emit('confirm')">
-          {{ busy ? "Eliminando…" : (confirmLabel ?? "Eliminar") }}
+          {{ busy ? "Deleting…" : (confirmLabel ?? "Delete") }}
         </button>
       </div>
     </div>

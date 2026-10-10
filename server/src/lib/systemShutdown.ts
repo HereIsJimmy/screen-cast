@@ -26,7 +26,7 @@ function shutdownCommand(): string {
       // into.
       return "sudo shutdown -h now";
     default:
-      throw new Error(`Apagado no soportado en esta plataforma (${process.platform}).`);
+      throw new Error(`Shutdown isn't supported on this platform (${process.platform}).`);
   }
 }
 
@@ -39,8 +39,8 @@ function shutdownCommand(): string {
  */
 export function shutdownServerPc(): void {
   const command = shutdownCommand();
-  console.warn(`[system] Apagando el PC del servidor ("${command}")…`);
+  console.warn(`[system] Shutting down the server PC ("${command}")…`);
   exec(command, (err) => {
-    if (err) console.error("[system] El comando de apagado falló:", err.message);
+    if (err) console.error("[system] The shutdown command failed:", err.message);
   });
 }

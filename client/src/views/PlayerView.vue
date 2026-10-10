@@ -46,7 +46,7 @@ const hasSupportedSubtitles = computed(() => video.value?.subtitles.some((s) => 
 
 /** Label for an audio-track <option>: its title (or a fallback), with the language in parentheses when known. */
 function audioTrackLabel(track: { index: number; language?: string; title?: string }): string {
-  const base = track.title || `Pista de audio ${track.index + 1}`;
+  const base = track.title || `Audio track ${track.index + 1}`;
   return track.language ? `${base} (${track.language})` : base;
 }
 
@@ -134,7 +134,7 @@ onMounted(load);
   <p v-if="localError" class="error-box">{{ localError }}</p>
   <p v-if="castState.error" class="error-box">{{ castState.error }}</p>
 
-  <div v-if="loading" class="empty-state">Cargando…</div>
+  <div v-if="loading" class="empty-state">Loading…</div>
 
   <div v-else-if="video" class="player-card">
     <div class="modal-title-row">
@@ -143,32 +143,32 @@ onMounted(load);
 
     <div class="status-line">
       <span class="dot" :class="{ connected: castState.isConnected }"></span>
-      <span v-if="isCastingThisVideo">Conectado a {{ castState.deviceName ?? "la TV" }}</span>
+      <span v-if="isCastingThisVideo">Connected to {{ castState.deviceName ?? "the TV" }}</span>
       <span v-else-if="castState.isConnected">
-        Conectado a {{ castState.deviceName ?? "la TV" }} (reproduciendo otro vídeo)
+        Connected to {{ castState.deviceName ?? "the TV" }} (playing another video)
       </span>
-      <span v-else-if="!castState.sdkReady">Inicializando Google Cast…</span>
-      <span v-else-if="!castState.hasCastDevices">No se han encontrado TVs/Chromecasts en tu red</span>
-      <span v-else>Listo para castear</span>
+      <span v-else-if="!castState.sdkReady">Initializing Google Cast…</span>
+      <span v-else-if="!castState.hasCastDevices">No TVs/Chromecasts found on your network</span>
+      <span v-else>Ready to cast</span>
     </div>
 
     <div class="controls-row">
       <select v-model="selectedSubtitle" @change="onSubtitleChange">
-        <option value="">Sin subtítulos</option>
+        <option value="">No subtitles</option>
         <option
           v-for="sub in video.subtitles.filter((s) => !s.unsupported)"
           :key="sub.index"
           :value="sub.index"
         >
-          {{ sub.title || sub.language || `Pista ${sub.index + 1}` }}
+          {{ sub.title || sub.language || `Track ${sub.index + 1}` }}
         </option>
       </select>
 
       <span v-if="hasUnsupportedSubtitles" class="badge warn">
         {{
           hasSupportedSubtitles
-            ? "Tiene algunos subtítulos inválidos"
-            : "Este vídeo tiene subtítulos en formato de imagen (no se pueden mostrar)"
+            ? "Some subtitle tracks are invalid"
+            : "This video has image-based subtitles (they can't be shown)"
         }}
       </span>
     </div>
@@ -188,15 +188,15 @@ onMounted(load);
         :disabled="preparing || !castState.hasCastDevices"
         @click="startCasting"
       >
-        {{ preparing ? "Preparando…" : castState.isConnected ? "▶ Reproducir aquí en la TV" : "▶ Castear a la TV" }}
+        {{ preparing ? "Preparing…" : castState.isConnected ? "▶ Play here on the TV" : "▶ Cast to TV" }}
       </button>
 
       <template v-else>
-        <button class="btn secondary" @click="togglePlayPause">⏯ Reproducir/Pausa</button>
+        <button class="btn secondary" @click="togglePlayPause">⏯ Play/Pause</button>
         <button class="btn secondary" @click="toggleMute">
-          {{ castState.isMuted ? "🔇 Quitar silencio" : "🔊 Silenciar" }}
+          {{ castState.isMuted ? "🔇 Unmute" : "🔊 Mute" }}
         </button>
-        <button class="btn secondary" @click="stopCasting">⏹ Detener</button>
+        <button class="btn secondary" @click="stopCasting">⏹ Stop</button>
       </template>
     </div>
 
@@ -239,15 +239,15 @@ onMounted(load);
           <line x1="10" y1="11" x2="10" y2="17"></line>
           <line x1="14" y1="11" x2="14" y2="17"></line>
         </svg>
-        <span class="btn-label">Eliminar</span>
+        <span class="btn-label">Delete</span>
       </button>
     </div>
   </div>
 
   <ConfirmDialog
     v-if="showDeleteConfirm"
-    title="Eliminar vídeo"
-    :message="`Se eliminará «${video?.title}» y todos sus archivos en caché. Esta acción no se puede deshacer.`"
+    title="Delete video"
+    :message="`“${video?.title}” and all its cached files will be deleted. This can't be undone.`"
     :busy="deleting"
     :error="deleteError"
     @confirm="handleDelete"

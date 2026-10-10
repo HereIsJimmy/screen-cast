@@ -93,7 +93,7 @@ export async function readSubtitleStyle(): Promise<SubtitleStyle> {
     const raw = await fs.readFile(stylePath, "utf-8");
     return sanitizeSubtitleStyle(JSON.parse(raw));
   } catch (err) {
-    console.warn(`[subtitleStyle] No se pudo leer ${stylePath}, usando valores por defecto:`, (err as Error).message);
+    console.warn(`[subtitleStyle] Couldn't read ${stylePath}, using defaults:`, (err as Error).message);
     return { ...DEFAULT_SUBTITLE_STYLE };
   }
 }

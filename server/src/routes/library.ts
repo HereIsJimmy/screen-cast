@@ -20,7 +20,7 @@ libraryRouter.post("/library/rescan", async (req, res) => {
 libraryRouter.get("/videos/:id", (req, res) => {
   const entry = getEntry(req.params.id);
   if (!entry) {
-    res.status(404).json({ error: "Vídeo no encontrado" });
+    res.status(404).json({ error: "Video not found" });
     return;
   }
   res.json(toDTO(entry));
@@ -28,7 +28,7 @@ libraryRouter.get("/videos/:id", (req, res) => {
 
 libraryRouter.delete("/videos/:id", async (req, res) => {
   if (!getEntry(req.params.id)) {
-    res.status(404).json({ error: "Vídeo no encontrado" });
+    res.status(404).json({ error: "Video not found" });
     return;
   }
   try {

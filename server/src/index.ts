@@ -23,8 +23,8 @@ async function main() {
   const [hasFfprobe, hasFfmpeg] = await Promise.all([checkFfprobeAvailable(), checkFfmpegAvailable()]);
   if (!hasFfprobe || !hasFfmpeg) {
     console.warn(
-      "[startup] No se encuentra ffmpeg/ffprobe en el PATH. Instálalo (ver README) — " +
-        "sin él no se puede leer metadata de los vídeos ni extraer subtítulos."
+      "[startup] ffmpeg/ffprobe not found on PATH. Install it (see README) — " +
+        "without it, video metadata can't be read and subtitles can't be extracted."
     );
   }
 
@@ -33,10 +33,10 @@ async function main() {
   try {
     const { removed } = await pruneStaleCache();
     if (removed > 0) {
-      console.log(`[startup] Caché de vídeo: ${removed} archivo(s) antiguo(s) eliminado(s).`);
+      console.log(`[startup] Video cache: deleted ${removed} old file(s).`);
     }
   } catch (err) {
-    console.warn("[startup] No se pudo limpiar la caché de vídeo:", (err as Error).message);
+    console.warn("[startup] Couldn't clean up the video cache:", (err as Error).message);
   }
 
   const app = express();
@@ -52,9 +52,9 @@ async function main() {
     const who = `${req.ip} ${(req.headers["user-agent"] ?? "").slice(0, 50)}`;
     console.log(`[media] ← ${req.method} ${req.originalUrl} range=${req.headers.range ?? "-"} (${who})`);
     res.on("close", () => {
-      const outcome = res.writableFinished ? "completa" : "cortada por el cliente";
+      const outcome = res.writableFinished ? "complete" : "cut off by the client";
       console.log(
-        `[media] → ${res.statusCode} ${req.originalUrl} ${outcome} en ${Date.now() - started} ms ` +
+        `[media] → ${res.statusCode} ${req.originalUrl} ${outcome} in ${Date.now() - started} ms ` +
           `(${res.getHeader("Content-Range") ?? res.getHeader("Content-Length") ?? "?"})`
       );
     });
@@ -94,40 +94,40 @@ async function main() {
     // "rescan" button — work immediately instead of racing the initial scan.
     if (config.mediaDirs.length === 0) return;
     console.log(
-      `[startup] Escaneando biblioteca en segundo plano (solo últimos ${config.recentMonths} meses): ` +
+      `[startup] Scanning library in the background (last ${config.recentMonths} months only): ` +
         config.mediaDirs.join(", ")
     );
     scanLibrary()
       .then(({ count, errors, skipped }) => {
         console.log(
-          `[startup] ${count} vídeo(s) indexados${errors ? `, ${errors} con errores` : ""}` +
-            `${skipped ? `, ${skipped} antiguo(s) omitidos` : ""}.`
+          `[startup] ${count} video(s) indexed${errors ? `, ${errors} with errors` : ""}` +
+            `${skipped ? `, ${skipped} old one(s) skipped` : ""}.`
         );
       })
       .catch((err) => {
-        console.error("[startup] Error escaneando la biblioteca:", err);
+        console.error("[startup] Error scanning the library:", err);
       });
   }
 
   httpServer.listen(config.port, "0.0.0.0", () => {
-    console.log(`\n[startup] Servidor escuchando en http://0.0.0.0:${config.port}`);
-    console.log(`[startup] Accesible en tu red local en: http://${lanIp}:${config.port}`);
+    console.log(`\n[startup] Server listening on http://0.0.0.0:${config.port}`);
+    console.log(`[startup] Reachable on your local network at: http://${lanIp}:${config.port}`);
 
     if (config.useHttps) {
       console.log(
-        `[startup] También accesible por HTTPS en: https://${lanIp}:${config.httpsPort} ` +
-          "(úsala para controlar el cast desde el móvil u otro PC de casa; la propia TV sigue " +
-          "recibiendo los vídeos por HTTP, así que esto no afecta a la reproducción)."
+        `[startup] Also reachable over HTTPS at: https://${lanIp}:${config.httpsPort} ` +
+          "(use it to control casting from your phone or another PC at home; the TV itself still " +
+          "receives the videos over HTTP, so this doesn't affect playback)."
       );
     } else if (process.env.NODE_ENV === "development" && config.httpsKeyPath && config.httpsCertPath) {
       console.log(
-        "[startup] HTTPS configurado pero desactivado en modo desarrollo (usa 'npm run build && npm start' " +
-          "para servir también por HTTPS)."
+        "[startup] HTTPS is configured but disabled in development mode (use 'npm run build && npm start' " +
+          "to serve over HTTPS too)."
       );
     } else {
       console.log(
-        "[startup] Aviso: sin HTTPS, controlar el cast desde dispositivos que no sean 'localhost' puede fallar " +
-          "(Chrome exige un contexto seguro para usar la API de Cast). Ver README para configurar HTTPS con mkcert."
+        "[startup] Warning: without HTTPS, controlling casting from devices other than 'localhost' may fail " +
+          "(Chrome requires a secure context for the Cast API). See the README to set up HTTPS with mkcert."
       );
     }
 
@@ -143,6 +143,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("[startup] Error fatal:", err);
+  console.error("[startup] Fatal error:", err);
   process.exit(1);
 });

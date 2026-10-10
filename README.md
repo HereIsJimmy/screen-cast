@@ -51,7 +51,7 @@ folder with the same name, they're shown merged as one.
 
 ## Subtitle style
 
-Under "🎨 Settings" (button next to "Update library") you can customize how subtitles look: font
+Under "⚙️ Settings" (button next to "Update library") you can customize how subtitles look: font
 size and style, typeface, text/background/edge color and opacity, and whether they sit on a
 solid box or one with rounded corners. There's a live preview as you adjust each value.
 
@@ -148,9 +148,8 @@ to the console without interrupting startup or the scan.
 ## Remote shutdown
 
 Off by default. Set `SHUTDOWN_ENABLED=true` and a `SHUTDOWN_PASSWORD` in `server/.env` to add a
-"Varios" section at the bottom of "⚙️ Configuración" (renamed from "🎨 Estilo de subtítulos" — it
-now also has a heading above the subtitle-style controls) with a password field and an "Apagar el
-PC del servidor" button. If `SHUTDOWN_ENABLED` is left off (or `SHUTDOWN_PASSWORD` is empty), the
+"Miscellaneous" section at the bottom of "⚙️ Settings" (below the subtitle-style controls) with a
+password field and a "Shut down the server PC" button. If `SHUTDOWN_ENABLED` is left off (or `SHUTDOWN_PASSWORD` is empty), the
 whole section is hidden — the button never renders, and the server rejects the request either way
 regardless of what the UI shows, so this isn't just a client-side toggle.
 
@@ -319,14 +318,14 @@ usando Chromecast built-in (Google Cast).
 
 1. El servidor escanea una o varias carpetas de tu PC en busca de vídeos y lee sus metadatos
    (duración, códecs, pistas de subtítulos) con `ffprobe`.
-2. La web (Vue) lista tu biblioteca. Cada vídeo tiene dos botones: "📡 Castear" y "▶ Reproducir".
+2. La web (Vue, con la interfaz en inglés) lista tu biblioteca. Cada vídeo tiene dos botones: "📡 Cast" y "▶ Play".
    Los dos abren un popup sobre la propia biblioteca en vez de navegar a una página aparte, pero la
    URL sigue cambiando (`/play/:id` o `/ver/:id`) — así que puedes recargar la página o compartir
    ese enlace: si entras directamente por esa URL, primero se carga la biblioteca y el popup
    correspondiente se abre solo en cuanto está lista.
-3. "📡 Castear" usa el SDK de Google Cast para conectar con tu TV (deben estar en la misma red
+3. "📡 Cast" usa el SDK de Google Cast para conectar con tu TV (deben estar en la misma red
    WiFi) y controlar la reproducción de forma remota (play/pausa, volumen, subtítulos, buscar en la
-   línea de tiempo). "▶ Reproducir" reproduce el vídeo directamente en el navegador con el
+   línea de tiempo). "▶ Play" reproduce el vídeo directamente en el navegador con el
    `<video>` nativo del navegador (con controles que incluyen pantalla completa) — útil para ver
    algo rápido sin encender la TV
    (ver [Reproducción local en el navegador](#reproducción-local-en-el-navegador)).
@@ -362,7 +361,7 @@ carpeta con el mismo nombre, se muestran fusionadas en una sola.
 
 ## Estilo de los subtítulos
 
-En "🎨 Ajustes" (botón junto a "Actualizar biblioteca") puedes personalizar cómo se ven los
+En "⚙️ Settings" (botón junto a "Update library") puedes personalizar cómo se ven los
 subtítulos en la TV: tamaño y estilo de la fuente, tipo de letra, color y opacidad del texto, del
 fondo y del borde, y si aparecen sobre una caja sólida o con esquinas redondeadas. Hay una vista
 previa en vivo mientras ajustas cada valor.
@@ -380,7 +379,7 @@ a castear.
 
 ## Reproducción local en el navegador
 
-El botón "▶ Reproducir" reproduce el vídeo directamente en tu navegador (sin pasar por la TV), con
+El botón "▶ Play" reproduce el vídeo directamente en tu navegador (sin pasar por la TV), con
 los controles nativos del `<video>` del navegador — incluida la pantalla completa, sin necesidad de
 un botón aparte.
 
@@ -390,18 +389,18 @@ así que un archivo en HEVC se envía tal cual a la TV. La mayoría de navegador
 HEVC en un `<video>` — el síntoma es que se oye el audio y se ven los subtítulos con normalidad,
 pero la imagen se queda en negro. Por eso el servidor mantiene, además de la caché pensada para la
 TV, una caché **independiente** para reproducción en navegador: si el vídeo no está ya en H.264, lo
-transcodifica a H.264 la primera vez que le das a "Reproducir" (puede tardar unos segundos, verás
-"Preparando vídeo…") y lo cachea aparte, sin tocar el archivo que se le sirve a la TV.
+transcodifica a H.264 la primera vez que le das a "Play" (puede tardar unos segundos, verás
+"Preparing video…") y lo cachea aparte, sin tocar el archivo que se le sirve a la TV.
 
 **Vídeo de 10 bits** (habitual en releases de): el HEVC Main 10 se sigue enviando tal cual
 a la TV, pero para el navegador se transcodifica a H.264 de 8 bits. El H.264 de 10 bits ("Hi10P")
 se transcodifica para ambos, porque ni las TVs ni los navegadores pueden decodificarlo. Esa
 transcodificación tarda un par de minutos en un episodio de 24 minutos (unas 10× la velocidad
-real) mientras se muestra "Preparando vídeo…".
+real) mientras se muestra "Preparing video…".
 
 **Preparar con antelación:** como esa primera transcodificación puede tardar, cada miniatura de la
 biblioteca tiene un botón en la esquina superior izquierda para lanzarla de antemano, sin necesidad
-de abrir el popup de "Reproducir" — útil para dejar varios vídeos listos con tiempo antes de verlos
+de abrir el popup de "Play" — útil para dejar varios vídeos listos con tiempo antes de verlos
 (por ejemplo desde el móvil, antes de un viaje). El icono indica el estado de ese vídeo para
 reproducción en navegador:
 
@@ -413,7 +412,7 @@ reproducción en navegador:
 ## Pistas de audio múltiples
 
 Si un vídeo tiene más de una pista de audio (por ejemplo, versiones con doble idioma), aparece un
-desplegable tanto en el popup de Castear como en el de Reproducir para elegir cuál usar, justo al
+desplegable tanto en el popup de Cast como en el de Play para elegir cuál usar, justo al
 lado del selector de subtítulos.
 
 Cambiar de pista de audio en caliente, en mitad de la reproducción, no está soportado de forma
@@ -422,7 +421,7 @@ instantánea: al elegir una pista se prepara (remuxea) esa pista concreta en el 
 empezar a reproducir, igual que ocurre con un códec incompatible. Cada elección de pista de audio
 se cachea por separado, así que volver a una que ya reprodujiste antes no la vuelve a
 transcodificar. Cambiar la pista mientras ya se está reproduciendo en el navegador recarga el
-`<video>` con la nueva elección; en la TV tendrás que volver a pulsar "Reproducir"/"Castear"
+`<video>` con la nueva elección; en la TV tendrás que volver a pulsar "Play"/"Cast"
 después de cambiar la selección.
 
 **Selección por defecto:** si hay varias pistas de audio, se preselecciona la japonesa. Si hay
@@ -433,8 +432,8 @@ descripciones de sonidos). Siempre puedes cambiarlas en los desplegables.
 ## Eliminar vídeos
 
 Puedes borrar un vídeo desde tres sitios: la papelera en la esquina superior derecha de su
-miniatura en la biblioteca, o el botón "🗑 Eliminar" dentro de cada uno de los popups de Castear y
-de Reproducir. En los tres casos aparece un popup de confirmación antes de borrar nada.
+miniatura en la biblioteca, o el botón "🗑 Delete" dentro de cada uno de los popups de Cast y
+de Play. En los tres casos aparece un popup de confirmación antes de borrar nada.
 
 Al confirmar, el servidor elimina el **archivo original del disco** (no solo lo quita de la
 biblioteca) y todos sus archivos cacheados (remuxes/transcodificaciones, subtítulos extraídos,
@@ -449,7 +448,7 @@ servidor se limpia solo en dos momentos:
   Chromecast como el de navegador) que no sean de ese mismo día — la caché existe para que
   reproducir dos veces seguidas sea instantáneo, no para acumular vídeos recodificados
   indefinidamente. Los `.vtt` (subtítulos) y `.jpg` (miniaturas) no se tocan aquí, pesan poco.
-- **Al escanear la biblioteca** (al arrancar o al pulsar "Actualizar biblioteca"): borra cualquier
+- **Al escanear la biblioteca** (al arrancar o al pulsar "Update library"): borra cualquier
   archivo cacheado (remux, remux de navegador, subtítulos, miniatura) cuyo vídeo ya no esté en el
   índice — porque lo borraste, lo moviste fuera de `MEDIA_DIRS` o le cambiaste el nombre.
 
@@ -459,9 +458,8 @@ interrumpir el arranque ni el escaneo.
 ## Apagado remoto
 
 Desactivado por defecto. Define `SHUTDOWN_ENABLED=true` y una `SHUTDOWN_PASSWORD` en
-`server/.env` para que aparezca una sección "Varios" al final de "⚙️ Configuración" (antes "🎨
-Estilo de subtítulos" — ahora también tiene su propia cabecera encima de los controles de estilo)
-con un campo de contraseña y un botón "Apagar el PC del servidor". Si `SHUTDOWN_ENABLED` está
+`server/.env` para que aparezca una sección "Miscellaneous" al final de "⚙️ Settings" (debajo de los controles de estilo de
+subtítulos) con un campo de contraseña y un botón "Shut down the server PC". Si `SHUTDOWN_ENABLED` está
 desactivado (o `SHUTDOWN_PASSWORD` está vacía), la sección entera no aparece — el botón nunca se
 renderiza, y el servidor rechaza la petición en cualquier caso independientemente de lo que
 muestre la web, así que esto no es solo un interruptor del lado del cliente.
@@ -591,7 +589,7 @@ para activarlo). Aun así, si algún cambio no se refleja:
 
 1. Para **completamente** ambos procesos (Ctrl+C hasta que vuelva el prompt) y cierra la terminal.
 2. Ábrela de nuevo y lanza `npm run dev`.
-3. Para cambios en el servidor, dale también a "Actualizar biblioteca" en la web si el cambio afecta
+3. Para cambios en el servidor, dale también a "Update library" en la web si el cambio afecta
    a cómo se leen/procesan los vídeos (títulos, filtros, etc.) — un simple reinicio no vuelve a
    escanear la biblioteca por sí solo.
 
@@ -611,5 +609,5 @@ screen-cast/
 - `npm run build` — compila servidor (`tsc`) y cliente (`vite build`).
 - `npm start` — arranca el servidor ya compilado (sirve también la web compilada en el mismo
   puerto).
-- Botón "Actualizar biblioteca" en la web, o `POST /api/library/rescan` — re-escanea las carpetas
+- Botón "Update library" en la web, o `POST /api/library/rescan` — re-escanea las carpetas
   configuradas sin reiniciar el servidor.

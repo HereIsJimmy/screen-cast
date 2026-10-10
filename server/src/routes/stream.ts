@@ -42,7 +42,7 @@ function getAudioTrackIndex(req: { query: { audio?: unknown } }, entry: VideoEnt
 streamRouter.post("/videos/:id/prepare", async (req, res) => {
   const entry = getEntry(req.params.id);
   if (!entry) {
-    res.status(404).json({ error: "Vídeo no encontrado" });
+    res.status(404).json({ error: "Video not found" });
     return;
   }
 
@@ -65,11 +65,11 @@ streamRouter.post("/videos/:id/prepare", async (req, res) => {
 streamRouter.delete("/videos/:id/prepared", async (req, res) => {
   const entry = getEntry(req.params.id);
   if (!entry) {
-    res.status(404).json({ error: "Vídeo no encontrado" });
+    res.status(404).json({ error: "Video not found" });
     return;
   }
   if (getPlayTarget(req) !== "browser") {
-    res.status(400).json({ error: "Solo se puede eliminar la preparación para el navegador" });
+    res.status(400).json({ error: "Only the browser preparation can be deleted" });
     return;
   }
 
@@ -84,7 +84,7 @@ streamRouter.delete("/videos/:id/prepared", async (req, res) => {
 streamRouter.get("/videos/:id/stream", async (req, res) => {
   const entry = getEntry(req.params.id);
   if (!entry) {
-    res.status(404).json({ error: "Vídeo no encontrado" });
+    res.status(404).json({ error: "Video not found" });
     return;
   }
 
@@ -96,7 +96,7 @@ streamRouter.get("/videos/:id/stream", async (req, res) => {
     );
     sendFileWithRange(req, res, filePath, contentType);
   } catch (err) {
-    console.error(`[stream] Error preparando ${entry.relativePath}:`, err);
+    console.error(`[stream] Error preparing ${entry.relativePath}:`, err);
     res.status(500).json({ error: (err as Error).message });
   }
 });
@@ -113,7 +113,7 @@ streamRouter.get("/videos/:id/thumbnail.jpg", async (req, res) => {
     sendFileWithRange(req, res, thumbPath, "image/jpeg");
   } catch (err) {
     // Not fatal — the client just shows a placeholder icon when this 404s.
-    console.warn(`[stream] No se pudo generar miniatura de ${entry.relativePath}:`, (err as Error).message);
+    console.warn(`[stream] Couldn't generate a thumbnail for ${entry.relativePath}:`, (err as Error).message);
     res.status(404).end();
   }
 });
@@ -121,14 +121,14 @@ streamRouter.get("/videos/:id/thumbnail.jpg", async (req, res) => {
 streamRouter.get("/videos/:id/subtitles/:index.vtt", async (req, res) => {
   const entry = getEntry(req.params.id);
   if (!entry) {
-    res.status(404).json({ error: "Vídeo no encontrado" });
+    res.status(404).json({ error: "Video not found" });
     return;
   }
 
   const subtitleIndex = Number(req.params.index);
   const track = entry.subtitles.find((s) => s.index === subtitleIndex);
   if (!track || track.unsupported) {
-    res.status(404).json({ error: "Pista de subtítulos no disponible" });
+    res.status(404).json({ error: "Subtitle track not available" });
     return;
   }
 
@@ -146,7 +146,7 @@ streamRouter.get("/videos/:id/subtitles/:index.vtt", async (req, res) => {
     res.setHeader("Content-Type", "text/vtt; charset=utf-8");
     res.send(vtt);
   } catch (err) {
-    console.error(`[stream] Error extrayendo subtítulos de ${entry.relativePath}:`, err);
+    console.error(`[stream] Error extracting subtitles from ${entry.relativePath}:`, err);
     res.status(500).json({ error: (err as Error).message });
   }
 });

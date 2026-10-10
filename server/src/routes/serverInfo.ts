@@ -14,8 +14,8 @@ serverInfoRouter.get("/server-info", (_req, res) => {
     // See config.useHttps for the full explanation.
     port: config.port,
     protocol: "http" as const,
-    // Only informational — e.g. so the UI could show "controla desde el
-    // móvil en https://..." — never used to build media URLs.
+    // Only informational — e.g. so the UI could show "control from your
+    // phone at https://..." — never used to build media URLs.
     httpsPort: config.useHttps ? config.httpsPort : null,
     recentMonths: config.recentMonths,
     shutdownEnabled: config.shutdownEnabled,

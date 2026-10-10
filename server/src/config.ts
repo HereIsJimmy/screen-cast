@@ -56,7 +56,7 @@ export const config = {
     ".m4v",
     ".avi",
   ]).map((ext) => (ext.startsWith(".") ? ext.toLowerCase() : `.${ext.toLowerCase()}`)),
-  /** Shows/enables the "Apagar el PC del servidor" button in Configuración > Varios. Off by default. */
+  /** Shows/enables the "Shut down the server PC" button in Settings > Miscellaneous. Off by default. */
   shutdownEnabled: (process.env.SHUTDOWN_ENABLED ?? "false").toLowerCase() === "true",
   /**
    * Required to actually shut down, independent of shutdownEnabled — even
@@ -69,6 +69,6 @@ export const config = {
 if (config.mediaDirs.length === 0) {
   // eslint-disable-next-line no-console
   console.warn(
-    "[config] MEDIA_DIRS no está configurado. Copia server/.env.example a server/.env y define al menos una carpeta con vídeos."
+    "[config] MEDIA_DIRS isn't set. Copy server/.env.example to server/.env and set at least one folder with videos."
   );
 }

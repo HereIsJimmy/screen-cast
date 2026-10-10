@@ -35,33 +35,33 @@ const shutdownDone = ref(false);
 
 const FONT_STYLE_OPTIONS: { value: SubtitleStyle["fontStyle"]; label: string }[] = [
   { value: "NORMAL", label: "Normal" },
-  { value: "BOLD", label: "Negrita" },
-  { value: "ITALIC", label: "Cursiva" },
-  { value: "BOLD_ITALIC", label: "Negrita cursiva" },
+  { value: "BOLD", label: "Bold" },
+  { value: "ITALIC", label: "Italic" },
+  { value: "BOLD_ITALIC", label: "Bold italic" },
 ];
 
 const FONT_FAMILY_OPTIONS: { value: SubtitleStyle["fontGenericFamily"]; label: string }[] = [
-  { value: "SANS_SERIF", label: "Sin serifa (recomendado)" },
-  { value: "SERIF", label: "Con serifa" },
-  { value: "MONOSPACED_SANS_SERIF", label: "Monoespaciada sin serifa" },
-  { value: "MONOSPACED_SERIF", label: "Monoespaciada con serifa" },
-  { value: "CASUAL", label: "Informal" },
-  { value: "CURSIVE", label: "Manuscrita" },
-  { value: "SMALL_CAPITALS", label: "Versalitas" },
+  { value: "SANS_SERIF", label: "Sans serif (recommended)" },
+  { value: "SERIF", label: "Serif" },
+  { value: "MONOSPACED_SANS_SERIF", label: "Monospaced sans serif" },
+  { value: "MONOSPACED_SERIF", label: "Monospaced serif" },
+  { value: "CASUAL", label: "Casual" },
+  { value: "CURSIVE", label: "Cursive" },
+  { value: "SMALL_CAPITALS", label: "Small capitals" },
 ];
 
 const EDGE_TYPE_OPTIONS: { value: SubtitleStyle["edgeType"]; label: string }[] = [
-  { value: "NONE", label: "Ninguno" },
-  { value: "OUTLINE", label: "Contorno" },
-  { value: "DROP_SHADOW", label: "Sombra" },
-  { value: "RAISED", label: "Relieve" },
-  { value: "DEPRESSED", label: "Grabado" },
+  { value: "NONE", label: "None" },
+  { value: "OUTLINE", label: "Outline" },
+  { value: "DROP_SHADOW", label: "Drop shadow" },
+  { value: "RAISED", label: "Raised" },
+  { value: "DEPRESSED", label: "Depressed" },
 ];
 
 const WINDOW_TYPE_OPTIONS: { value: SubtitleStyle["windowType"]; label: string }[] = [
-  { value: "NONE", label: "Ninguno" },
-  { value: "NORMAL", label: "Caja sólida" },
-  { value: "ROUNDED_CORNERS", label: "Caja con esquinas redondeadas" },
+  { value: "NONE", label: "None" },
+  { value: "NORMAL", label: "Solid box" },
+  { value: "ROUNDED_CORNERS", label: "Box with rounded corners" },
 ];
 
 type ColorField = "foregroundColor" | "backgroundColor" | "edgeColor" | "windowColor";
@@ -115,7 +115,7 @@ async function save() {
       await applySubtitleStyleLive(saved).catch((err) => {
         // Not fatal — it'll still apply the next time something is cast —
         // but log it so it's obvious in DevTools why a live change didn't show up.
-        console.warn("[settings] No se pudo aplicar el estilo en directo a la TV:", err);
+        console.warn("[settings] Couldn't apply the style live on the TV:", err);
       });
     }
   } catch (err) {
@@ -192,56 +192,56 @@ onMounted(load);
 <template>
   <div class="container">
     <header class="app-header">
-      <h1>⚙️ Configuración</h1>
-      <button class="btn secondary" @click="goBack">← Biblioteca</button>
+      <h1>⚙️ Settings</h1>
+      <button class="btn secondary" @click="goBack">← Library</button>
     </header>
 
     <p v-if="error" class="error-box">{{ error }}</p>
 
-    <div v-if="loading" class="empty-state">Cargando…</div>
+    <div v-if="loading" class="empty-state">Loading…</div>
 
     <div v-else class="player-card">
       <div class="settings-section">
-        <h2 class="settings-section-title">Estilo de subtítulos</h2>
+        <h2 class="settings-section-title">Subtitle style</h2>
 
         <div class="subtitle-preview">
           <div class="subtitle-preview-cue" :style="{ top: style.subtitlePositionPercent + '%' }">
-            <span :style="previewWindowStyle"><span :style="previewTextStyle">Así se verán tus subtítulos</span></span>
+            <span :style="previewWindowStyle"><span :style="previewTextStyle">This is how your subtitles will look</span></span>
           </div>
         </div>
 
         <div class="settings-grid">
           <label class="settings-field">
-            <span>Tamaño del texto</span>
+            <span>Text size</span>
             <input v-model.number="style.fontScale" type="range" min="0.5" max="2" step="0.1" />
             <span class="settings-value">{{ style.fontScale.toFixed(1) }}×</span>
           </label>
 
           <label class="settings-field">
-            <span>Posición vertical</span>
+            <span>Vertical position</span>
             <input v-model.number="style.subtitlePositionPercent" type="range" min="0" max="100" step="1" />
             <span class="settings-value">
               {{ style.subtitlePositionPercent }}%
-              ({{ style.subtitlePositionPercent < 34 ? "arriba" : style.subtitlePositionPercent > 66 ? "abajo" : "centro" }})
+              ({{ style.subtitlePositionPercent < 34 ? "top" : style.subtitlePositionPercent > 66 ? "bottom" : "middle" }})
             </span>
           </label>
 
           <label class="settings-field">
-            <span>Estilo de fuente</span>
+            <span>Font style</span>
             <select v-model="style.fontStyle">
               <option v-for="opt in FONT_STYLE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
             </select>
           </label>
 
           <label class="settings-field">
-            <span>Tipo de letra</span>
+            <span>Typeface</span>
             <select v-model="style.fontGenericFamily">
               <option v-for="opt in FONT_FAMILY_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
             </select>
           </label>
 
           <div class="settings-field">
-            <span>Color del texto</span>
+            <span>Text color</span>
             <div class="color-row">
               <input type="color" :value="hexOf(style.foregroundColor)" @input="setHex('foregroundColor', $event)" />
               <input
@@ -257,7 +257,7 @@ onMounted(load);
           </div>
 
           <div class="settings-field">
-            <span>Fondo tras el texto</span>
+            <span>Background behind text</span>
             <div class="color-row">
               <input type="color" :value="hexOf(style.backgroundColor)" @input="setHex('backgroundColor', $event)" />
               <input
@@ -273,14 +273,14 @@ onMounted(load);
           </div>
 
           <label class="settings-field">
-            <span>Borde del texto</span>
+            <span>Text edge</span>
             <select v-model="style.edgeType">
               <option v-for="opt in EDGE_TYPE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
             </select>
           </label>
 
           <div class="settings-field" v-if="style.edgeType !== 'NONE'">
-            <span>Color del borde</span>
+            <span>Edge color</span>
             <div class="color-row">
               <input type="color" :value="hexOf(style.edgeColor)" @input="setHex('edgeColor', $event)" />
               <input
@@ -296,14 +296,14 @@ onMounted(load);
           </div>
 
           <label class="settings-field">
-            <span>Caja de subtítulos</span>
+            <span>Subtitle box</span>
             <select v-model="style.windowType">
               <option v-for="opt in WINDOW_TYPE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
             </select>
           </label>
 
           <div class="settings-field" v-if="style.windowType !== 'NONE'">
-            <span>Color de la caja</span>
+            <span>Box color</span>
             <div class="color-row">
               <input type="color" :value="hexOf(style.windowColor)" @input="setHex('windowColor', $event)" />
               <input
@@ -319,7 +319,7 @@ onMounted(load);
           </div>
 
           <label class="settings-field" v-if="style.windowType === 'ROUNDED_CORNERS'">
-            <span>Redondeo de esquinas</span>
+            <span>Corner rounding</span>
             <input v-model.number="style.windowRoundedCornerRadius" type="range" min="0" max="32" step="1" />
             <span class="settings-value">{{ style.windowRoundedCornerRadius }}px</span>
           </label>
@@ -327,25 +327,25 @@ onMounted(load);
 
         <div class="controls-row">
           <button class="btn" :disabled="saving" @click="save">
-            {{ saving ? "Guardando…" : "Guardar" }}
+            {{ saving ? "Saving…" : "Save" }}
           </button>
-          <button class="btn secondary" :disabled="saving" @click="resetToDefaults">Restablecer valores</button>
-          <span v-if="justSaved" class="badge" style="background: #1f3a24; color: #7fd18a">Guardado ✓</span>
+          <button class="btn secondary" :disabled="saving" @click="resetToDefaults">Reset to defaults</button>
+          <span v-if="justSaved" class="badge" style="background: #1f3a24; color: #7fd18a">Saved ✓</span>
         </div>
 
         <p class="settings-hint">
-          Se aplica a los subtítulos de todos los vídeos. Si ahora mismo estás casteando algo, el cambio se envía a la
-          TV en cuanto guardas; si no, se aplicará la próxima vez que le des a "Castear". La posición vertical es la
-          excepción: al ir incrustada en el propio archivo de subtítulos, no se actualiza en caliente — se aplicará la
-          próxima vez que cambies de pista de subtítulos o vuelvas a castear.
+          Applies to the subtitles of every video. If you're casting something right now, the change is sent to the
+          TV as soon as you save; otherwise it applies the next time you click "Cast". Vertical position is the
+          exception: since it's baked into the subtitle file itself, it doesn't update live — it applies the next
+          time you switch subtitle tracks or cast again.
         </p>
       </div>
 
       <div v-if="serverInfo?.shutdownEnabled" class="settings-section">
-        <h2 class="settings-section-title">Varios</h2>
+        <h2 class="settings-section-title">Miscellaneous</h2>
 
         <p v-if="shutdownDone" class="settings-hint">
-          El PC del servidor se está apagando… esta página dejará de responder en unos segundos.
+          The server PC is shutting down… this page will stop responding in a few seconds.
         </p>
 
         <template v-else>
@@ -356,7 +356,7 @@ onMounted(load);
                 v-model="shutdownPassword"
                 type="password"
                 autocomplete="off"
-                placeholder="Contraseña de apagado"
+                placeholder="Shutdown password"
                 @keyup.enter="handleShutdown"
               />
             </label>
@@ -369,7 +369,7 @@ onMounted(load);
               :disabled="shuttingDown || !shutdownPassword"
               @click="handleShutdown"
             >
-              {{ shuttingDown ? "Apagando…" : "Apagar el PC del servidor" }}
+              {{ shuttingDown ? "Shutting down…" : "Shut down the server PC" }}
             </button>
           </div>
 

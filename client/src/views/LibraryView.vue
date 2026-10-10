@@ -218,7 +218,7 @@ function formatDuration(sec: number | null): string {
 // Ids currently being remuxed/transcoded for browser playback ahead of
 // time, via the thumbnail's "prepare" button — so its icon can switch to an
 // hourglass while the request is in flight, without waiting for someone to
-// actually open the Reproducir popup first.
+// actually open the Play popup first.
 const preparingVideos = reactive(new Set<string>());
 
 async function prepareForBrowser(video: VideoDTO) {
@@ -265,7 +265,7 @@ async function removeBrowserCache(video: VideoDTO) {
 }
 
 // Deleting a video can be triggered from the trash icon on a thumbnail
-// (right here) or from inside the Castear/Reproducir popup (PlayerView /
+// (right here) or from inside the Cast/Play popup (PlayerView /
 // WatchView emit "deleted" once they've done it) — either way the video
 // just needs to disappear from this list, without a full re-fetch.
 const videoPendingDelete = ref<VideoDTO | null>(null);
@@ -348,7 +348,7 @@ onBeforeUnmount(() => {
         <label
           class="icon-toggle"
           :class="{ active: includesOld, disabled: rescanning }"
-          :title="`Incluir también vídeos con más de ${recentMonths} meses (el escaneo puede tardar más)`"
+          :title="`Also include videos older than ${recentMonths} months (scanning may take longer)`"
         >
           <input type="checkbox" :checked="includesOld" :disabled="rescanning" @change="onToggleIncludeOld" />
           <svg
@@ -385,7 +385,7 @@ onBeforeUnmount(() => {
             <polyline points="1 20 1 14 7 14"></polyline>
             <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
           </svg>
-          <span class="btn-label">{{ rescanning ? "Escaneando…" : "Actualizar biblioteca" }}</span>
+          <span class="btn-label">{{ rescanning ? "Scanning…" : "Update library" }}</span>
         </button>
 
         <button class="btn secondary" @click="router.push({ name: 'settings' })">
@@ -406,7 +406,7 @@ onBeforeUnmount(() => {
               d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
             ></path>
           </svg>
-          <span class="btn-label">Configuración</span>
+          <span class="btn-label">Settings</span>
         </button>
       </div>
     </header>
@@ -415,12 +415,12 @@ onBeforeUnmount(() => {
       v-model="searchQuery"
       type="search"
       class="search-input"
-      placeholder="Buscar vídeos por título…"
-      aria-label="Buscar vídeos"
+      placeholder="Search videos by title…"
+      aria-label="Search videos"
     />
 
-    <nav v-if="currentPath.length > 0" class="folder-bar" aria-label="Carpeta actual">
-      <button class="btn secondary" type="button" title="Volver a la carpeta anterior" @click="goUpOneLevel">
+    <nav v-if="currentPath.length > 0" class="folder-bar" aria-label="Current folder">
+      <button class="btn secondary" type="button" title="Back to the previous folder" @click="goUpOneLevel">
         <svg
           class="icon"
           viewBox="0 0 24 24"
@@ -436,10 +436,10 @@ onBeforeUnmount(() => {
           <line x1="19" y1="12" x2="5" y2="12"></line>
           <polyline points="12 19 5 12 12 5"></polyline>
         </svg>
-        <span>Volver</span>
+        <span>Back</span>
       </button>
       <ol class="breadcrumb">
-        <li><a href="#" @click.prevent="goToFolderPath([])">Biblioteca</a></li>
+        <li><a href="#" @click.prevent="goToFolderPath([])">Library</a></li>
         <li v-for="(part, i) in currentPath" :key="i">
           <span v-if="i === currentPath.length - 1" aria-current="page">📁 {{ part }}</span>
           <a v-else href="#" @click.prevent="goToFolderPath(currentPath.slice(0, i + 1))">{{ part }}</a>
@@ -449,23 +449,23 @@ onBeforeUnmount(() => {
 
     <p v-if="error" class="error-box">{{ error }}</p>
 
-    <div v-if="loading" class="empty-state">Cargando biblioteca…</div>
+    <div v-if="loading" class="empty-state">Loading library…</div>
 
     <div v-else-if="videos.length === 0" class="empty-state">
-      No se encontró ningún vídeo. Revisa <code>MEDIA_DIRS</code> en <code>server/.env</code>
+      No videos found. Check <code>MEDIA_DIRS</code> in <code>server/.env</code>
       <template v-if="!includesOld">
-        , o puede que tus vídeos tengan más de {{ recentMonths }} meses — actívalo con el filtro de arriba
+        , or your videos may be older than {{ recentMonths }} months — turn on the filter above
       </template>
-      y pulsa el icono de actualizar.
+      and click the update icon.
     </div>
 
     <div v-else-if="totalItems === 0 && isSearching" class="empty-state">
-      Ningún vídeo coincide con «{{ searchQuery }}».
+      No videos match “{{ searchQuery }}”.
     </div>
 
     <div v-else-if="totalItems === 0" class="empty-state">
-      Esta carpeta no contiene vídeos
-      <template v-if="!includesOld">recientes (de los últimos {{ recentMonths }} meses)</template>.
+      This folder has no
+      <template v-if="!includesOld">recent (last {{ recentMonths }} months)</template> videos.
     </div>
 
     <template v-else>
@@ -475,7 +475,7 @@ onBeforeUnmount(() => {
           :key="folder.path.join('/')"
           type="button"
           class="video-card folder-card"
-          :title="`Abrir carpeta «${folder.name}»`"
+          :title="`Open folder “${folder.name}”`"
           @click="openFolder(folder)"
         >
           <div class="video-thumb">
@@ -488,7 +488,7 @@ onBeforeUnmount(() => {
             />
             <div v-else class="video-thumb-placeholder">📁</div>
             <span class="folder-badge" aria-hidden="true">📁</span>
-            <span class="thumb-duration">{{ folder.videoCount }} {{ folder.videoCount === 1 ? "vídeo" : "vídeos" }}</span>
+            <span class="thumb-duration">{{ folder.videoCount }} {{ folder.videoCount === 1 ? "video" : "videos" }}</span>
           </div>
           <div class="video-title">{{ folder.name }}</div>
         </button>
@@ -510,13 +510,13 @@ onBeforeUnmount(() => {
               :disabled="removingBrowserCache.has(video.id)"
               :title="
                 removingBrowserCache.has(video.id)
-                  ? 'Eliminando copia cacheada…'
-                  : 'Listo para reproducir en el navegador — clic para eliminar la copia cacheada'
+                  ? 'Deleting cached copy…'
+                  : 'Ready to play in the browser — click to delete the cached copy'
               "
               :aria-label="
                 removingBrowserCache.has(video.id)
-                  ? 'Eliminando copia cacheada'
-                  : 'Listo para reproducir en el navegador, eliminar copia cacheada'
+                  ? 'Deleting cached copy'
+                  : 'Ready to play in the browser, delete cached copy'
               "
               @click.stop="removeBrowserCache(video)"
             >
@@ -539,8 +539,8 @@ onBeforeUnmount(() => {
               class="thumb-prepare"
               type="button"
               :disabled="preparingVideos.has(video.id)"
-              :title="preparingVideos.has(video.id) ? 'Preparando para el navegador…' : 'Preparar para reproducir en el navegador'"
-              :aria-label="preparingVideos.has(video.id) ? 'Preparando para el navegador' : 'Preparar para reproducir en el navegador'"
+              :title="preparingVideos.has(video.id) ? 'Preparing for the browser…' : 'Prepare for browser playback'"
+              :aria-label="preparingVideos.has(video.id) ? 'Preparing for the browser' : 'Prepare for browser playback'"
               @click.stop="prepareForBrowser(video)"
             >
               <span v-if="preparingVideos.has(video.id)" class="thumb-prepare-hourglass" aria-hidden="true">⏳</span>
@@ -564,8 +564,8 @@ onBeforeUnmount(() => {
             <button
               class="thumb-delete"
               type="button"
-              title="Eliminar vídeo"
-              aria-label="Eliminar vídeo"
+              title="Delete video"
+              aria-label="Delete video"
               @click.stop="requestDelete(video)"
             >
               <svg
@@ -588,19 +588,19 @@ onBeforeUnmount(() => {
           </div>
           <div class="video-title">{{ video.title }}</div>
           <div class="video-meta">
-            <span v-if="video.subtitles.length === 0" class="badge danger">No tiene subtítulos</span>
-            <span v-if="video.needsProcessing" class="badge warn" title="Se reempaquetará antes de castear">
-              se preparará al castear
+            <span v-if="video.subtitles.length === 0" class="badge danger">No subtitles</span>
+            <span v-if="video.needsProcessing" class="badge warn" title="It will be repackaged before casting">
+              prepared when cast
             </span>
           </div>
           <div class="video-actions">
-            <button class="btn secondary" @click="goToCast(video)">📡 Castear</button>
-            <button class="btn secondary" @click="goToWatch(video)">▶ Reproducir</button>
+            <button class="btn secondary" @click="goToCast(video)">📡 Cast</button>
+            <button class="btn secondary" @click="goToWatch(video)">▶ Play</button>
           </div>
         </div>
       </div>
 
-      <div v-if="hasMoreVideos" ref="scrollSentinel" class="load-more-sentinel">Cargando más vídeos…</div>
+      <div v-if="hasMoreVideos" ref="scrollSentinel" class="load-more-sentinel">Loading more videos…</div>
     </template>
   </div>
 
@@ -611,8 +611,8 @@ onBeforeUnmount(() => {
 
   <ConfirmDialog
     v-if="videoPendingDelete"
-    title="Eliminar vídeo"
-    :message="`Se eliminará «${videoPendingDelete.title}» y todos sus archivos en caché. Esta acción no se puede deshacer.`"
+    title="Delete video"
+    :message="`“${videoPendingDelete.title}” and all its cached files will be deleted. This can't be undone.`"
     :busy="deletingFromGrid"
     :error="deleteGridError"
     @confirm="confirmDeleteFromGrid"

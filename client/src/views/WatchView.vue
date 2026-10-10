@@ -29,7 +29,7 @@ const hasUnsupportedSubtitles = computed(() => video.value?.subtitles.some((s) =
 
 /** Label for an audio-track <option>: its title (or a fallback), with the language in parentheses when known. */
 function audioTrackLabel(track: { index: number; language?: string; title?: string }): string {
-  const base = track.title || `Pista de audio ${track.index + 1}`;
+  const base = track.title || `Audio track ${track.index + 1}`;
   return track.language ? `${base} (${track.language})` : base;
 }
 
@@ -122,14 +122,14 @@ onMounted(load);
 <template>
   <p v-if="error" class="error-box">{{ error }}</p>
 
-  <div v-if="loading" class="empty-state">{{ preparing ? "Preparando vídeo…" : "Cargando…" }}</div>
+  <div v-if="loading" class="empty-state">{{ preparing ? "Preparing video…" : "Loading…" }}</div>
 
   <div v-else-if="video" class="player-card">
     <div class="modal-title-row">
       <h2>{{ video.title }}</h2>
     </div>
 
-    <p v-if="!loading && !ready && preparing" class="empty-state">Preparando vídeo…</p>
+    <p v-if="!loading && !ready && preparing" class="empty-state">Preparing video…</p>
 
     <video
       v-if="ready"
@@ -148,23 +148,23 @@ onMounted(load);
         kind="subtitles"
         :src="relativeMediaUrl(subtitlePath(video.id, sub.index, { forBrowser: true }))"
         :srclang="sub.language || 'und'"
-        :label="sub.title || sub.language || `Pista ${sub.index + 1}`"
+        :label="sub.title || sub.language || `Track ${sub.index + 1}`"
       />
     </video>
 
     <div v-if="supportedSubtitles.length > 0" class="controls-row">
       <select v-model="selectedSubtitle">
-        <option value="">Sin subtítulos</option>
+        <option value="">No subtitles</option>
         <option v-for="sub in supportedSubtitles" :key="sub.index" :value="sub.index">
-          {{ sub.title || sub.language || `Pista ${sub.index + 1}` }}
+          {{ sub.title || sub.language || `Track ${sub.index + 1}` }}
         </option>
       </select>
 
       <span v-if="hasUnsupportedSubtitles" class="badge warn">
         {{
           supportedSubtitles.length > 0
-            ? "Tiene algunos subtítulos inválidos"
-            : "Este vídeo tiene subtítulos en formato de imagen (no se pueden mostrar)"
+            ? "Some subtitle tracks are invalid"
+            : "This video has image-based subtitles (they can't be shown)"
         }}
       </span>
     </div>
@@ -196,15 +196,15 @@ onMounted(load);
           <line x1="10" y1="11" x2="10" y2="17"></line>
           <line x1="14" y1="11" x2="14" y2="17"></line>
         </svg>
-        <span class="btn-label">Eliminar</span>
+        <span class="btn-label">Delete</span>
       </button>
     </div>
   </div>
 
   <ConfirmDialog
     v-if="showDeleteConfirm"
-    title="Eliminar vídeo"
-    :message="`Se eliminará «${video?.title}» y todos sus archivos en caché. Esta acción no se puede deshacer.`"
+    title="Delete video"
+    :message="`“${video?.title}” and all its cached files will be deleted. This can't be undone.`"
     :busy="deleting"
     :error="deleteError"
     @confirm="handleDelete"
