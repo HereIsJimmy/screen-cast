@@ -15,6 +15,7 @@ import Modal from "@/components/Modal.vue";
 import ConfirmDialog from "@/components/ConfirmDialog.vue";
 import PlayerView from "@/views/PlayerView.vue";
 import WatchView from "@/views/WatchView.vue";
+import { queuePosition, removeFromQueue, toggleQueued } from "@/services/queue";
 
 const route = useRoute();
 const router = useRouter();
@@ -283,6 +284,7 @@ function cancelDelete() {
 
 function removeVideoFromList(id: string) {
   videos.value = videos.value.filter((v) => v.id !== id);
+  removeFromQueue(id);
 }
 
 async function confirmDeleteFromGrid() {
@@ -304,6 +306,11 @@ async function confirmDeleteFromGrid() {
 /** Called by PlayerView/WatchView once they've deleted the video that's open in the popup. */
 function onVideoDeleted(id: string) {
   removeVideoFromList(id);
+}
+
+function queueButtonTitle(video: VideoDTO): string {
+  const position = queuePosition(video.id);
+  return position === null ? "Add to queue" : `#${position} in the queue — click to remove`;
 }
 
 function goToCast(video: VideoDTO) {
@@ -559,6 +566,34 @@ onBeforeUnmount(() => {
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                 <polyline points="7 10 12 15 17 10"></polyline>
                 <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+            </button>
+            <button
+              class="thumb-queue"
+              :class="{ queued: queuePosition(video.id) !== null }"
+              type="button"
+              :title="queueButtonTitle(video)"
+              :aria-label="queueButtonTitle(video)"
+              @click.stop="toggleQueued(video)"
+            >
+              <template v-if="queuePosition(video.id) !== null">#{{ queuePosition(video.id) }}</template>
+              <svg
+                v-else
+                viewBox="0 0 24 24"
+                width="15"
+                height="15"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <line x1="3" y1="6" x2="15" y2="6"></line>
+                <line x1="3" y1="12" x2="15" y2="12"></line>
+                <line x1="3" y1="18" x2="11" y2="18"></line>
+                <line x1="18" y1="14" x2="18" y2="22"></line>
+                <line x1="14" y1="18" x2="22" y2="18"></line>
               </svg>
             </button>
             <button

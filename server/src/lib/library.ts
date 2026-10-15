@@ -79,6 +79,62 @@ export function didLastScanIncludeOld(): boolean {
   return lastScanIncludedOld;
 }
 
+/**
+ * The index is saved to DATA_DIR after every scan (and delete), and loaded
+ * back on startup instead of re-scanning, so a restart shows the library
+ * from the last scan right away. Only "Update library" scans the folders.
+ */
+function getIndexPath(): string {
+  return path.join(config.dataDir, "library-index.json");
+}
+
+interface SavedIndex {
+  includesOld: boolean;
+  entries: VideoEntry[];
+}
+
+async function saveIndex(): Promise<void> {
+  const data: SavedIndex = { includesOld: lastScanIncludedOld, entries: Array.from(entries.values()) };
+  const indexPath = getIndexPath();
+  try {
+    await fs.mkdir(config.dataDir, { recursive: true });
+    // Write to a temp file first so a crash mid-write never leaves a truncated index.
+    await fs.writeFile(`${indexPath}.tmp`, JSON.stringify(data), "utf-8");
+    await fs.rename(`${indexPath}.tmp`, indexPath);
+  } catch (err) {
+    console.warn(`[library] Couldn't save the library index to ${indexPath}:`, (err as Error).message);
+  }
+}
+
+/**
+ * Loads the index saved by the last scan. Returns null when there's none
+ * (first run) or it can't be read. Entries whose media root is no longer in
+ * MEDIA_DIRS are dropped; files deleted while the server was off stay listed
+ * until the next "Update library".
+ */
+export async function loadSavedLibrary(): Promise<{ count: number; includesOld: boolean } | null> {
+  const indexPath = getIndexPath();
+  let data: SavedIndex;
+  try {
+    data = JSON.parse(await fs.readFile(indexPath, "utf-8")) as SavedIndex;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.warn(`[library] Couldn't read the saved library index ${indexPath}:`, (err as Error).message);
+    }
+    return null;
+  }
+  if (!data || !Array.isArray(data.entries)) return null;
+
+  entries.clear();
+  for (const entry of data.entries) {
+    if (typeof entry?.id !== "string" || typeof entry.relativePath !== "string") continue;
+    const stillConfigured = config.mediaDirs.some((root) => makeId(root, entry.relativePath) === entry.id);
+    if (stillConfigured) entries.set(entry.id, entry);
+  }
+  lastScanIncludedOld = data.includesOld === true;
+  return { count: entries.size, includesOld: lastScanIncludedOld };
+}
+
 function makeId(mediaRoot: string, relativePath: string): string {
   return createHash("sha1").update(`${mediaRoot}::${relativePath}`).digest("hex").slice(0, 16);
 }
@@ -371,6 +427,7 @@ async function doScan(options: ScanOptions): Promise<ScanResult> {
   }
 
   lastScanIncludedOld = includeOld;
+  await saveIndex();
 
   return { count: entries.size, errors, skipped, includesOld: includeOld };
 }
@@ -426,6 +483,7 @@ export async function deleteVideo(id: string): Promise<void> {
   }
 
   entries.delete(id);
+  await saveIndex();
   await deleteCacheForId(id);
 }
 

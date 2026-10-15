@@ -4,6 +4,8 @@ import { useRoute, useRouter } from "vue-router";
 import { deleteVideo, fetchVideo, prepareVideo, relativeMediaUrl, subtitlePath, videoStreamPath } from "@/services/api";
 import type { VideoDTO } from "@/types";
 import ConfirmDialog from "@/components/ConfirmDialog.vue";
+import { peekNext, removeFromQueue, takeNext } from "@/services/queue";
+import { prepareNextInBackground } from "@/services/queueAutoplay";
 
 const emit = defineEmits<{ deleted: [id: string] }>();
 
@@ -15,6 +17,10 @@ const loading = ref(true);
 const preparing = ref(false);
 const error = ref<string | null>(null);
 const ready = ref(false);
+// Once created, the <video> element is kept for the popup's lifetime and
+// only its src changes — including when the queue moves on to the next
+// video — so fullscreen (on a phone especially) survives the switch.
+const playerMounted = ref(false);
 const videoEl = ref<HTMLVideoElement | null>(null);
 const selectedSubtitle = ref<number | "">("");
 const selectedAudioTrack = ref(0);
@@ -23,6 +29,9 @@ const deleting = ref(false);
 const deleteError = ref<string | null>(null);
 
 const videoId = computed(() => String(route.params.id));
+
+/** What the queue will play once this video ends. */
+const upNext = computed(() => peekNext(videoId.value));
 
 const supportedSubtitles = computed(() => video.value?.subtitles.filter((s) => !s.unsupported) ?? []);
 const hasUnsupportedSubtitles = computed(() => video.value?.subtitles.some((s) => s.unsupported) ?? false);
@@ -35,12 +44,12 @@ function audioTrackLabel(track: { index: number; language?: string; title?: stri
 
 // Same reason the Cast player does this: the first request for a video
 // that needs remuxing/transcoding can take a while, so we wait for it here
-// and show "Preparando…" instead of leaving a native <video> stuck spinning
+// and show "Preparing…" instead of leaving a native <video> stuck spinning
 // with no explanation. Also re-run whenever the selected audio track
 // changes: there's no live audio-track switching in a plain <video>
-// element, so a new choice means a fresh prepare + a remounted <video> with
-// the new track baked into its src (the v-if="ready" toggle forces that
-// remount).
+// element, so a new choice means a fresh prepare + a new src with the new
+// track baked in (the src is only set while `ready`, so the <video> reloads
+// once that prepare finishes).
 async function prepareForBrowser() {
   if (!video.value) return;
   ready.value = false;
@@ -49,6 +58,8 @@ async function prepareForBrowser() {
   try {
     await prepareVideo(video.value.id, { forBrowser: true, audioTrackIndex: selectedAudioTrack.value });
     ready.value = true;
+    playerMounted.value = true;
+    prepareNextInBackground({ forBrowser: true });
   } catch (err) {
     error.value = (err as Error).message;
   } finally {
@@ -63,12 +74,15 @@ async function prepareForBrowser() {
 let settingDefaultAudioTrack = false;
 
 async function load() {
-  loading.value = true;
+  // Only the first load replaces the popup with a loading message; moving
+  // on to the next queued video keeps the player (and fullscreen) on screen.
+  loading.value = !video.value;
   error.value = null;
   ready.value = false;
   try {
     const v = await fetchVideo(videoId.value);
     video.value = v;
+    removeFromQueue(v.id); // it's playing now, so it's no longer "up next"
     selectedSubtitle.value = v.defaultSubtitleIndex ?? "";
     settingDefaultAudioTrack = true;
     selectedAudioTrack.value = v.defaultAudioTrackIndex;
@@ -116,7 +130,17 @@ async function handleDelete() {
   }
 }
 
+/** Autoplays the next queued video, in this same popup. */
+function onEnded() {
+  const next = takeNext();
+  if (next) router.replace({ name: "watch", params: { id: next.id }, query: route.query });
+}
+
 onMounted(load);
+
+watch(videoId, (id, oldId) => {
+  if (route.name === "watch" && id !== oldId) load();
+});
 </script>
 
 <template>
@@ -132,18 +156,23 @@ onMounted(load);
     <p v-if="!loading && !ready && preparing" class="empty-state">Preparing video…</p>
 
     <video
-      v-if="ready"
+      v-if="playerMounted"
       ref="videoEl"
       class="watch-video"
-      :src="relativeMediaUrl(videoStreamPath(video.id, { forBrowser: true, audioTrackIndex: selectedAudioTrack }))"
+      :src="
+        ready
+          ? relativeMediaUrl(videoStreamPath(video.id, { forBrowser: true, audioTrackIndex: selectedAudioTrack }))
+          : undefined
+      "
       controls
       autoplay
       playsinline
       @loadedmetadata="applySubtitleSelection"
+      @ended="onEnded"
     >
       <track
         v-for="sub in supportedSubtitles"
-        :key="sub.index"
+        :key="`${video.id}-${sub.index}`"
         :id="String(sub.index)"
         kind="subtitles"
         :src="relativeMediaUrl(subtitlePath(video.id, sub.index, { forBrowser: true }))"
@@ -151,6 +180,8 @@ onMounted(load);
         :label="sub.title || sub.language || `Track ${sub.index + 1}`"
       />
     </video>
+
+    <p v-if="upNext" class="up-next">⏭ Up next: {{ upNext.title }}</p>
 
     <div v-if="supportedSubtitles.length > 0" class="controls-row">
       <select v-model="selectedSubtitle">

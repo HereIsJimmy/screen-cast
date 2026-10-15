@@ -117,6 +117,23 @@ there are several subtitle tracks, the English full-dialogue one is preselected:
 "S&S" tracks (on-screen text and songs only) are skipped, and the plain track is preferred over
 SDH (with sound descriptions). You can always change either in the dropdowns.
 
+## Queue (autoplay next)
+
+The button in the **bottom-left corner** of each video's thumbnail adds it to the queue; once
+queued it shows its position (#1, #2…), and clicking it again removes it. When the video you're
+watching ends — whether you started it with "📡 Cast" or "▶ Play" — the first video in the queue
+starts automatically (with its default audio and subtitle tracks), and leaves the queue. Both
+popups show what's "Up next".
+
+- The next video starts preparing in the background as soon as the current one starts, so the
+  switch is usually instant even when it needs a transcode.
+- On the TV, autoplay keeps working with the popup closed, but **the web page that started the
+  cast must stay open** (it's the page that tells the TV what to play next). Stopping playback
+  ("⏹ Stop") doesn't advance the queue; only reaching the end does.
+- In the browser, the next video plays in the same player, so fullscreen is kept.
+- The queue is saved **per device** (in that browser), so a queue built on your phone is used when
+  you play or cast from your phone.
+
 ## Deleting videos
 
 You can delete a video from three places: the trash icon in the top-right corner of its
@@ -136,7 +153,7 @@ cleans itself up at two points:
   for Chromecast and the browser one) that aren't from that same day — the cache exists to make
   playing something twice in a row instant, not to accumulate re-encoded videos indefinitely.
   `.vtt` (subtitles) and `.jpg` (thumbnails) files are left alone here, since they're cheap.
-- **On library scan** (on startup or when clicking "Update library"): deletes any cached file
+- **On library scan** (when clicking "Update library", or on the very first startup): deletes any cached file
   (remux, browser remux, subtitles, thumbnail) whose video is no longer in the index — because
   you deleted it, moved it out of `MEDIA_DIRS`, or renamed it. This step is skipped (with a
   console warning) if any configured media folder couldn't be read during that scan, so a
@@ -302,7 +319,11 @@ screen-cast/
 - `npm start` — starts the already-built server (also serves the built web app on the same
   port).
 - "Update library" button in the web app, or `POST /api/library/rescan` — re-scans the
-  configured folders without restarting the server.
+  configured folders without restarting the server. This is the only way the library gets
+  re-scanned: each scan is saved to `server/data/library-index.json` and loaded back on startup,
+  so restarting shows the last scan instantly (only the very first run, with no saved index,
+  scans on startup). Videos added or removed while the server was off show up after the next
+  "Update library".
 
 ---
 
@@ -429,6 +450,24 @@ varias pistas de subtítulos, se preselecciona la inglesa con los diálogos comp
 pistas "Forced"/"Signs"/"S&S" (solo carteles y canciones) y se prefiere la normal a la SDH (con
 descripciones de sonidos). Siempre puedes cambiarlas en los desplegables.
 
+## Cola (reproducción automática)
+
+El botón de la **esquina inferior izquierda** de la miniatura de cada vídeo lo añade a la cola;
+una vez en la cola muestra su posición (#1, #2…), y al pulsarlo otra vez se quita. Cuando termina
+el vídeo que estás viendo — tanto si lo empezaste con "📡 Cast" como con "▶ Play" — empieza
+automáticamente el primero de la cola (con sus pistas de audio y subtítulos por defecto), y sale
+de la cola. Los dos popups muestran qué viene a continuación ("Up next").
+
+- El siguiente vídeo se empieza a preparar en segundo plano en cuanto empieza el actual, así que
+  el cambio suele ser inmediato aunque necesite transcodificarse.
+- En la TV, la reproducción automática sigue funcionando con el popup cerrado, pero **la página
+  web desde la que casteaste tiene que seguir abierta** (es la que le dice a la TV qué viene
+  después). Detener la reproducción ("⏹ Stop") no avanza la cola; solo llegar al final.
+- En el navegador, el siguiente vídeo se reproduce en el mismo reproductor, así que se mantiene la
+  pantalla completa.
+- La cola se guarda **por dispositivo** (en ese navegador): una cola hecha desde el móvil es la que
+  se usa al reproducir o castear desde el móvil.
+
 ## Eliminar vídeos
 
 Puedes borrar un vídeo desde tres sitios: la papelera en la esquina superior derecha de su
@@ -448,7 +487,7 @@ servidor se limpia solo en dos momentos:
   Chromecast como el de navegador) que no sean de ese mismo día — la caché existe para que
   reproducir dos veces seguidas sea instantáneo, no para acumular vídeos recodificados
   indefinidamente. Los `.vtt` (subtítulos) y `.jpg` (miniaturas) no se tocan aquí, pesan poco.
-- **Al escanear la biblioteca** (al arrancar o al pulsar "Update library"): borra cualquier
+- **Al escanear la biblioteca** (al pulsar "Update library", o en el primer arranque): borra cualquier
   archivo cacheado (remux, remux de navegador, subtítulos, miniatura) cuyo vídeo ya no esté en el
   índice — porque lo borraste, lo moviste fuera de `MEDIA_DIRS` o le cambiaste el nombre.
 
@@ -610,4 +649,8 @@ screen-cast/
 - `npm start` — arranca el servidor ya compilado (sirve también la web compilada en el mismo
   puerto).
 - Botón "Update library" en la web, o `POST /api/library/rescan` — re-escanea las carpetas
-  configuradas sin reiniciar el servidor.
+  configuradas sin reiniciar el servidor. Es la única forma de re-escanear la biblioteca: cada
+  escaneo se guarda en `server/data/library-index.json` y se carga al arrancar, así que reiniciar
+  muestra el último escaneo al instante (solo la primera vez, sin índice guardado, se escanea al
+  arrancar). Los vídeos añadidos o borrados con el servidor apagado aparecen tras el siguiente
+  "Update library".

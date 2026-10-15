@@ -42,6 +42,79 @@ export const castState: CastState = reactive({
 });
 
 let remotePlayer: cast.framework.RemotePlayer | null = null;
+
+type FinishedListener = (videoId: string) => void;
+const finishedListeners = new Set<FinishedListener>();
+
+/**
+ * Registers a callback for when the video on the TV plays through to its
+ * end — not when it's stopped, replaced by another load, or the session
+ * ends. Used by the queue to autoplay the next video. Returns an unsubscribe.
+ */
+export function onCastMediaFinished(listener: FinishedListener): () => void {
+  finishedListeners.add(listener);
+  return () => finishedListeners.delete(listener);
+}
+
+/** How close to the end a stopped video still counts as "played to the end" when the TV gives no reason. */
+const END_MARGIN_SEC = 10;
+
+/** The video loaded by the last castVideo() call, tracked so its end is reported exactly once. */
+interface CastLoad {
+  videoId: string;
+  endHandled: boolean;
+  lastTimeSec: number;
+  durationSec: number;
+}
+let currentLoad: CastLoad | null = null;
+
+function endLoad(load: CastLoad, source: string, finished: boolean): void {
+  if (load !== currentLoad || load.endHandled) return; // replaced by another load, or already handled
+  load.endHandled = true;
+  console.log(`[cast] Video ${load.videoId} stopped (${source}); ${finished ? "played to the end" : "not a natural end"}.`);
+  if (!finished || castState.currentVideoId !== load.videoId) return;
+  for (const listener of finishedListeners) listener(load.videoId);
+}
+
+/**
+ * Decides whether a load that went IDLE played to its end. The receiver's
+ * idleReason tells a real end (FINISHED) apart from stop/replace
+ * (CANCELLED/INTERRUPTED) or ERROR, but it's often missing by the time the
+ * sender sees the IDLE (the SDK drops the finished media session), so fall
+ * back to "the last position seen was within a few seconds of the end".
+ * The last position is tracked per load because the RemotePlayer's own
+ * currentTime is usually reset to 0 by then.
+ */
+function judgeIdle(load: CastLoad, idleReason: string | null | undefined, source: string): void {
+  if (idleReason === chrome.cast.media.IdleReason.FINISHED) {
+    endLoad(load, `${source}: FINISHED`, true);
+  } else if (idleReason) {
+    endLoad(load, `${source}: ${idleReason}`, false);
+  } else if (load.durationSec > 0 && load.lastTimeSec >= load.durationSec - END_MARGIN_SEC) {
+    endLoad(load, `${source}: no reason, at ${Math.round(load.lastTimeSec)}/${Math.round(load.durationSec)} s`, true);
+  }
+}
+
+function trackPosition(timeSec: number | undefined, durationSec: number | undefined): void {
+  if (!currentLoad) return;
+  if (timeSec && timeSec > 0) currentLoad.lastTimeSec = timeSec;
+  if (durationSec && durationSec > 0) currentLoad.durationSec = durationSec;
+}
+
+/** Listens to the status updates of this load's own Media object (the most direct signal of its end). */
+function watchForMediaEnd(media: chrome.cast.media.Media, load: CastLoad): void {
+  media.addUpdateListener((isAlive) => {
+    if (load !== currentLoad) return;
+    if (media.playerState === chrome.cast.media.PlayerState.PLAYING) {
+      trackPosition(media.getEstimatedTime(), media.media?.duration ?? undefined);
+    }
+    if (!isAlive || media.playerState === chrome.cast.media.PlayerState.IDLE) {
+      console.log(`[cast] Media status: ${media.playerState}, reason=${media.idleReason ?? "none"}, alive=${isAlive}`);
+      judgeIdle(load, media.idleReason, "media status");
+    }
+  });
+}
+
 let remotePlayerController: cast.framework.RemotePlayerController | null = null;
 let initPromise: Promise<void> | null = null;
 
@@ -109,17 +182,32 @@ export function initializeCast(): Promise<void> {
           castState.durationSec = 0;
           castState.currentVideoId = null;
           castState.activeSubtitleIndex = null;
+          currentLoad = null;
         }
       }
     );
     remotePlayerController.addEventListener(cast.framework.RemotePlayerEventType.PLAYER_STATE_CHANGED, () => {
+      const previous = castState.playerState;
       castState.playerState = remotePlayer?.playerState ?? null;
+
+      // Backup for the per-load media listener: playback stopped (IDLE, or
+      // the player state cleared) after it had been playing.
+      const stopped =
+        castState.playerState === null || castState.playerState === chrome.cast.media.PlayerState.IDLE;
+      const wasActive = previous !== null && previous !== chrome.cast.media.PlayerState.IDLE;
+      if (stopped && wasActive && currentLoad) {
+        const media = context.getCurrentSession()?.getMediaSession();
+        console.log(`[cast] Player state: ${previous} → ${castState.playerState}, reason=${media?.idleReason ?? "none"}`);
+        judgeIdle(currentLoad, media?.idleReason, "player state");
+      }
     });
     remotePlayerController.addEventListener(cast.framework.RemotePlayerEventType.CURRENT_TIME_CHANGED, () => {
       castState.currentTimeSec = remotePlayer?.currentTime ?? 0;
+      trackPosition(castState.currentTimeSec, undefined);
     });
     remotePlayerController.addEventListener(cast.framework.RemotePlayerEventType.DURATION_CHANGED, () => {
       castState.durationSec = remotePlayer?.duration ?? 0;
+      trackPosition(undefined, castState.durationSec);
     });
     remotePlayerController.addEventListener(cast.framework.RemotePlayerEventType.IS_MUTED_CHANGED, () => {
       castState.isMuted = remotePlayer?.isMuted ?? false;
@@ -266,6 +354,11 @@ export async function castVideo(
 
   await session.loadMedia(request);
   castState.currentVideoId = video.id;
+  const load: CastLoad = { videoId: video.id, endHandled: false, lastTimeSec: 0, durationSec: video.durationSec ?? 0 };
+  currentLoad = load;
+  const media = session.getMediaSession();
+  if (media) watchForMediaEnd(media, load);
+  else console.warn("[cast] No media session after load; queue autoplay won't trigger for this video.");
 }
 
 export function togglePlayPause(): void {

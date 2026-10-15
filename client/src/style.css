@@ -330,6 +330,48 @@ button {
   background: var(--danger);
 }
 
+.thumb-queue {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  border: none;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.thumb-queue:hover {
+  background: var(--accent);
+}
+
+/* Queued: shows its position; hovering hints that a click removes it. */
+.thumb-queue.queued {
+  background: var(--accent);
+}
+
+.thumb-queue.queued:hover {
+  background: var(--danger);
+}
+
+.up-next {
+  margin: 0 0 12px;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .video-thumb img {
   width: 100%;
   height: 100%;

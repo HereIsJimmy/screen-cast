@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { deleteVideo, fetchServerInfo, fetchVideo, prepareVideo } from "@/services/api";
 import {
@@ -15,6 +15,7 @@ import {
 } from "@/services/cast";
 import type { ServerInfo, VideoDTO } from "@/types";
 import ConfirmDialog from "@/components/ConfirmDialog.vue";
+import { peekNext } from "@/services/queue";
 
 const emit = defineEmits<{ deleted: [id: string] }>();
 
@@ -33,6 +34,9 @@ const deleting = ref(false);
 const deleteError = ref<string | null>(null);
 
 const videoId = computed(() => String(route.params.id));
+
+/** What the queue will cast once this video ends. */
+const upNext = computed(() => peekNext(videoId.value));
 
 // Being connected to the TV isn't the same as this page's video being what's
 // loaded there — you can arrive here already connected because you were
@@ -138,6 +142,12 @@ async function handleDelete() {
 }
 
 onMounted(load);
+
+// Queue autoplay swaps the route to the next video while this popup is
+// open (see queueAutoplay.ts) — reload for it instead of showing the old one.
+watch(videoId, (id, oldId) => {
+  if (route.name === "player" && id !== oldId) load();
+});
 </script>
 
 <template>
@@ -161,6 +171,8 @@ onMounted(load);
       <span v-else-if="!castState.hasCastDevices">No TVs/Chromecasts found on your network</span>
       <span v-else>Ready to cast</span>
     </div>
+
+    <p v-if="upNext" class="up-next">⏭ Up next: {{ upNext.title }}</p>
 
     <div class="controls-row">
       <select v-model="selectedSubtitle" @change="onSubtitleChange">

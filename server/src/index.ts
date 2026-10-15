@@ -7,7 +7,7 @@ import cors from "cors";
 import express from "express";
 import { config } from "./config.js";
 import { checkFfmpegAvailable, checkFfprobeAvailable } from "./lib/ffprobe.js";
-import { scanLibrary } from "./lib/library.js";
+import { loadSavedLibrary, scanLibrary } from "./lib/library.js";
 import { pruneStaleCache } from "./lib/mediaCache.js";
 import { getLanIp } from "./lib/networkInfo.js";
 import { libraryRouter } from "./routes/library.js";
@@ -88,13 +88,25 @@ async function main() {
 
   const lanIp = getLanIp();
 
-  function afterFirstListen() {
-    // The library scan (ffprobe on every file) can take a while on a large
-    // library. Run it *after* we're already listening so the API — and the
-    // "rescan" button — work immediately instead of racing the initial scan.
+  async function afterFirstListen() {
     if (config.mediaDirs.length === 0) return;
+
+    // No rescan on startup: reuse the index saved by the last scan, so the
+    // library shows up instantly. "Update library" refreshes it.
+    const saved = await loadSavedLibrary();
+    if (saved) {
+      console.log(
+        `[startup] Loaded ${saved.count} video(s) from the last library scan ` +
+          `(use "Update library" to rescan).`
+      );
+      return;
+    }
+
+    // First run (no saved index yet): the scan (ffprobe on every file) can
+    // take a while on a large library, so run it *after* we're already
+    // listening so the API — and the "rescan" button — work immediately.
     console.log(
-      `[startup] Scanning library in the background (last ${config.recentMonths} months only): ` +
+      `[startup] No saved library index; scanning in the background (last ${config.recentMonths} months only): ` +
         config.mediaDirs.join(", ")
     );
     scanLibrary()
@@ -131,7 +143,7 @@ async function main() {
       );
     }
 
-    afterFirstListen();
+    void afterFirstListen();
   });
 
   if (config.useHttps) {
