@@ -2,8 +2,10 @@
 import { onMounted } from "vue";
 import { initializeCast } from "@/services/cast";
 import { setUpCastQueueAutoplay } from "@/services/queueAutoplay";
+import { setUpCastWatchTracking } from "@/services/watched";
 
 setUpCastQueueAutoplay();
+setUpCastWatchTracking();
 
 // Kick off Cast SDK loading as soon as the app mounts so the "Cast" button
 // is ready by the time the user picks a video.

@@ -1,11 +1,13 @@
 import fs from "node:fs/promises";
 import { Router } from "express";
-import { getEntry } from "../lib/library.js";
+import { getEntry, toDTO } from "../lib/library.js";
 import {
-  deleteBrowserCache,
+  defaultBurnSubtitleIndex,
+  deletePreparedCache,
   getPlayablePath,
   getSubtitleVttPath,
   getThumbnailPath,
+  isBurnableSubtitle,
   type PlayTarget,
 } from "../lib/mediaCache.js";
 import { sendFileWithRange } from "../lib/rangeStream.js";
@@ -35,6 +37,21 @@ function getAudioTrackIndex(req: { query: { audio?: unknown } }, entry: VideoEnt
 }
 
 /**
+ * Reads the ?burn=N|none query param used by /prepare and /stream: which
+ * ASS/SSA subtitle track to burn into the picture, or "none". Missing (or
+ * naming a track that can't be burned) falls back to the server's default,
+ * which burns the preselected subtitle track when it's ASS/SSA — so callers
+ * that offer no choice (the library's "prepare" button, queue autoplay) get
+ * the same file the popups use by default. Mirrors getAudioTrackIndex.
+ */
+function getBurnSubtitleIndex(req: { query: { burn?: unknown } }, entry: VideoEntry): number | null {
+  if (req.query.burn === "none") return null;
+  const raw = Number(req.query.burn);
+  if (req.query.burn !== undefined && Number.isInteger(raw) && isBurnableSubtitle(entry, raw)) return raw;
+  return defaultBurnSubtitleIndex(entry);
+}
+
+/**
  * Kicks off (and waits for) remux/subtitle-extraction for a video, so the
  * client can show a "preparing…" state before actually telling the TV to
  * load the stream URL. Idempotent and safe to call more than once.
@@ -47,20 +64,23 @@ streamRouter.post("/videos/:id/prepare", async (req, res) => {
   }
 
   try {
-    await getPlayablePath(entry, getPlayTarget(req), getAudioTrackIndex(req, entry));
+    await getPlayablePath(entry, getPlayTarget(req), getAudioTrackIndex(req, entry), getBurnSubtitleIndex(req, entry));
     const supportedSubs = entry.subtitles.filter((s) => !s.unsupported);
     await Promise.all(supportedSubs.map((s) => getSubtitleVttPath(entry, s.index)));
-    res.json({ ready: true });
+    // The updated video lets the library grid refresh both prepare buttons
+    // (a burned-in remux serves both targets).
+    res.json({ ready: true, video: toDTO(entry) });
   } catch (err) {
     res.status(500).json({ ready: false, error: (err as Error).message });
   }
 });
 
 /**
- * Un-prepares a video for browser playback: deletes its cached
- * "-browser.mp4" remux/transcode so the ready checkmark in the library grid
- * goes back to the "prepare" button (or, for a video that never needed a
- * cache file, simply reports nothing was removed and stays ready).
+ * Un-prepares a video for ?target (browser or cast): deletes the cached
+ * remux/transcode behind its prepare button in the library grid (or, for a
+ * video that never needed a cache file, simply reports nothing was removed
+ * and stays ready). Returns the updated video too: deleting a burned-in
+ * remux un-prepares both targets at once.
  */
 streamRouter.delete("/videos/:id/prepared", async (req, res) => {
   const entry = getEntry(req.params.id);
@@ -68,14 +88,9 @@ streamRouter.delete("/videos/:id/prepared", async (req, res) => {
     res.status(404).json({ error: "Video not found" });
     return;
   }
-  if (getPlayTarget(req) !== "browser") {
-    res.status(400).json({ error: "Only the browser preparation can be deleted" });
-    return;
-  }
-
   try {
-    const { removed } = await deleteBrowserCache(entry);
-    res.json({ removed });
+    const { removed } = await deletePreparedCache(entry, getPlayTarget(req));
+    res.json({ removed, video: toDTO(entry) });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
@@ -92,7 +107,8 @@ streamRouter.get("/videos/:id/stream", async (req, res) => {
     const { path: filePath, contentType } = await getPlayablePath(
       entry,
       getPlayTarget(req),
-      getAudioTrackIndex(req, entry)
+      getAudioTrackIndex(req, entry),
+      getBurnSubtitleIndex(req, entry)
     );
     sendFileWithRange(req, res, filePath, contentType);
   } catch (err) {

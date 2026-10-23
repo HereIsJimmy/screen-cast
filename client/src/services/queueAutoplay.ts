@@ -1,6 +1,6 @@
 import { watch } from "vue";
 import { router } from "@/router";
-import { fetchServerInfo, fetchVideo, prepareVideo } from "@/services/api";
+import { burnSubtitleIndexFor, fetchPlaybackSettings, fetchServerInfo, fetchVideo, prepareVideo } from "@/services/api";
 import { castState, castVideo, onCastMediaFinished } from "@/services/cast";
 import { peekNext, removeFromQueue, takeNext } from "@/services/queue";
 
@@ -32,13 +32,15 @@ async function castNextFromQueue(): Promise<void> {
       console.log("[queue] Video finished; the queue is empty.");
       return;
     }
-    const serverInfo = await fetchServerInfo();
+    const [serverInfo, settings] = await Promise.all([fetchServerInfo(), fetchPlaybackSettings()]);
     for (let next = takeNext(); next; next = takeNext()) {
       console.log(`[queue] Video finished; casting "${next.title}".`);
       try {
         const video = await fetchVideo(next.id);
-        await prepareVideo(video.id, { audioTrackIndex: video.defaultAudioTrackIndex });
-        await castVideo(serverInfo, video, video.defaultSubtitleIndex, video.defaultAudioTrackIndex);
+        // Same burn-in default as the Cast popup starts with.
+        const burnSubtitleIndex = burnSubtitleIndexFor(video, video.defaultSubtitleIndex, settings.burnInByDefault);
+        await prepareVideo(video.id, { audioTrackIndex: video.defaultAudioTrackIndex, burnSubtitleIndex });
+        await castVideo(serverInfo, video, video.defaultSubtitleIndex, video.defaultAudioTrackIndex, burnSubtitleIndex);
         return;
       } catch (err) {
         console.warn(`[queue] Skipping "${next.title}":`, err);

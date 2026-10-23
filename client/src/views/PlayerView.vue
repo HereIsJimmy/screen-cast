@@ -1,7 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { deleteVideo, fetchServerInfo, fetchVideo, prepareVideo } from "@/services/api";
+import {
+  burnSubtitleIndexFor,
+  deleteVideo,
+  fetchPlaybackSettings,
+  fetchServerInfo,
+  fetchVideo,
+  prepareVideo,
+} from "@/services/api";
 import {
   castState,
   castVideo,
@@ -16,6 +23,7 @@ import {
 import type { ServerInfo, VideoDTO } from "@/types";
 import ConfirmDialog from "@/components/ConfirmDialog.vue";
 import { peekNext } from "@/services/queue";
+import { isVideoWatched, setWatched } from "@/services/watched";
 
 const emit = defineEmits<{ deleted: [id: string] }>();
 
@@ -29,6 +37,10 @@ const preparing = ref(false);
 const localError = ref<string | null>(null);
 const selectedSubtitle = ref<number | "">("");
 const selectedAudioTrack = ref(0);
+// Starts as PlaybackSettings.burnInByDefault (on unless changed in
+// Settings): the TV only gets plain text otherwise, which loses an ASS
+// track's drawings, fonts and typesetting.
+const burnIn = ref(true);
 const showDeleteConfirm = ref(false);
 const deleting = ref(false);
 const deleteError = ref<string | null>(null);
@@ -46,6 +58,16 @@ const isCastingThisVideo = computed(
   () => castState.isConnected && castState.currentVideoId === video.value?.id
 );
 
+const selectedSubtitleIndex = computed(() => (selectedSubtitle.value === "" ? null : Number(selectedSubtitle.value)));
+const selectedIsBurnable = computed(
+  () => video.value?.subtitles.some((s) => s.index === selectedSubtitleIndex.value && s.burnable) ?? false
+);
+const burnSubtitleIndex = computed(() =>
+  video.value ? burnSubtitleIndexFor(video.value, selectedSubtitleIndex.value, burnIn.value) : null
+);
+/** Subtitles baked into what's on the TV can't be switched live — that takes a new cast. */
+const subtitlesLocked = computed(() => isCastingThisVideo.value && castState.burnedSubtitleIndex !== null);
+
 const hasUnsupportedSubtitles = computed(() => video.value?.subtitles.some((s) => s.unsupported) ?? false);
 const hasSupportedSubtitles = computed(() => video.value?.subtitles.some((s) => !s.unsupported) ?? false);
 
@@ -59,9 +81,14 @@ async function load() {
   loading.value = true;
   localError.value = null;
   try {
-    const [v, info] = await Promise.all([fetchVideo(videoId.value), fetchServerInfo()]);
+    const [v, info, settings] = await Promise.all([
+      fetchVideo(videoId.value),
+      fetchServerInfo(),
+      fetchPlaybackSettings(),
+    ]);
     video.value = v;
     serverInfo.value = info;
+    burnIn.value = settings.burnInByDefault;
     selectedSubtitle.value = v.defaultSubtitleIndex ?? "";
     selectedAudioTrack.value = v.defaultAudioTrackIndex;
   } catch (err) {
@@ -85,9 +112,17 @@ async function startCasting() {
 
   preparing.value = true;
   try {
-    await prepareVideo(video.value.id, { audioTrackIndex: selectedAudioTrack.value });
-    const subIndex = selectedSubtitle.value === "" ? null : Number(selectedSubtitle.value);
-    await castVideo(serverInfo.value, video.value, subIndex, selectedAudioTrack.value);
+    await prepareVideo(video.value.id, {
+      audioTrackIndex: selectedAudioTrack.value,
+      burnSubtitleIndex: burnSubtitleIndex.value,
+    });
+    await castVideo(
+      serverInfo.value,
+      video.value,
+      selectedSubtitleIndex.value,
+      selectedAudioTrack.value,
+      burnSubtitleIndex.value
+    );
   } catch (err) {
     localError.value = (err as Error).message;
   } finally {
@@ -95,11 +130,19 @@ async function startCasting() {
   }
 }
 
+async function toggleWatched() {
+  if (!video.value) return;
+  try {
+    await setWatched(video.value.id, !isVideoWatched(video.value));
+  } catch (err) {
+    localError.value = (err as Error).message;
+  }
+}
+
 function onSubtitleChange() {
   if (!video.value) return;
-  const subIndex = selectedSubtitle.value === "" ? null : Number(selectedSubtitle.value);
   if (isCastingThisVideo.value) {
-    setSubtitleTrack(video.value, subIndex);
+    setSubtitleTrack(video.value, selectedSubtitleIndex.value);
   }
 }
 
@@ -159,6 +202,15 @@ watch(videoId, (id, oldId) => {
   <div v-else-if="video" class="player-card">
     <div class="modal-title-row">
       <h2>{{ video.title }}</h2>
+      <button
+        class="watched-toggle"
+        :class="{ on: isVideoWatched(video) }"
+        type="button"
+        :title="isVideoWatched(video) ? 'Watched — click to mark as unwatched' : 'Mark as watched'"
+        @click="toggleWatched"
+      >
+        {{ isVideoWatched(video) ? "✓ Watched" : "Mark as watched" }}
+      </button>
     </div>
 
     <div class="status-line">
@@ -175,7 +227,7 @@ watch(videoId, (id, oldId) => {
     <p v-if="upNext" class="up-next">⏭ Up next: {{ upNext.title }}</p>
 
     <div class="controls-row">
-      <select v-model="selectedSubtitle" @change="onSubtitleChange">
+      <select v-model="selectedSubtitle" :disabled="subtitlesLocked" @change="onSubtitleChange">
         <option value="">No subtitles</option>
         <option
           v-for="sub in video.subtitles.filter((s) => !s.unsupported)"
@@ -195,6 +247,14 @@ watch(videoId, (id, oldId) => {
       </span>
     </div>
 
+    <div v-if="selectedIsBurnable" class="controls-row">
+      <label class="burn-toggle" title="Renders the subtitles into the picture, keeping their signs, drawings and fonts. Re-encodes the video (on the GPU when available), so the first play takes a minute or two.">
+        <input v-model="burnIn" type="checkbox" :disabled="isCastingThisVideo" />
+        Burn in subtitles (full styling)
+      </label>
+      <span v-if="subtitlesLocked" class="hint">Burned in: stop and cast again to change subtitles.</span>
+    </div>
+
     <div v-if="video.audioTracks.length > 1" class="controls-row">
       <select v-model.number="selectedAudioTrack" :disabled="isCastingThisVideo">
         <option v-for="track in video.audioTracks" :key="track.index" :value="track.index">
@@ -210,7 +270,7 @@ watch(videoId, (id, oldId) => {
         :disabled="preparing || !castState.hasCastDevices"
         @click="startCasting"
       >
-        {{ preparing ? "Preparing…" : castState.isConnected ? "▶ Play here on the TV" : "▶ Cast to TV" }}
+        {{ preparing ? (burnSubtitleIndex !== null ? "Burning in subtitles…" : "Preparing…") : castState.isConnected ? "▶ Play here on the TV" : "▶ Cast to TV" }}
       </button>
 
       <template v-else>

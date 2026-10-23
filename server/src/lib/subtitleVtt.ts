@@ -9,9 +9,14 @@ import type { SubtitleStyle } from "../types.js";
  * than being baked into the cached extraction, so a position change takes
  * effect the next time the TV (re)fetches the track without needing to
  * re-extract anything.
+ *
+ * Cues that already carry their own "line:" (signs, top-of-screen lines and
+ * other positioned ASS events, see assToVtt.ts) keep it: only regular
+ * dialogue follows the user's setting.
  */
 
-const CUE_TIMING_RE = /^(\d{2}:\d{2}:\d{2}\.\d{3})(\s*-->\s*)(\d{2}:\d{2}:\d{2}\.\d{3})(.*)$/;
+// The hours part is optional: ffmpeg writes "MM:SS.mmm" for cues under an hour.
+const CUE_TIMING_RE = /^((?:\d{2,}:)?\d{2}:\d{2}\.\d{3})(\s*-->\s*)((?:\d{2,}:)?\d{2}:\d{2}\.\d{3})(.*)$/;
 
 export function applyCuePosition(vttText: string, linePercent: number): string {
   const clamped = Math.min(100, Math.max(0, Math.round(linePercent)));
@@ -21,8 +26,8 @@ export function applyCuePosition(vttText: string, linePercent: number): string {
       const match = CUE_TIMING_RE.exec(line);
       if (!match) return line;
       const [, start, arrow, end, rest] = match;
-      // Drop any existing line:xx% / line:N setting so ours is the one that applies.
-      const otherSettings = (rest ?? "").replace(/\bline:\S+/g, "").trim();
+      const otherSettings = (rest ?? "").trim();
+      if (/\bline:/.test(otherSettings)) return line;
       const settings = otherSettings ? `${otherSettings} line:${clamped}%` : `line:${clamped}%`;
       return `${start}${arrow}${end} ${settings}`;
     })

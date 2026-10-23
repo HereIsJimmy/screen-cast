@@ -17,6 +17,8 @@ export interface CastState {
   durationSec: number;
   isMuted: boolean;
   activeSubtitleIndex: number | null;
+  /** Subtitle track burned into the picture of what's casting (see castVideo), or null. */
+  burnedSubtitleIndex: number | null;
   error: string | null;
   /**
    * Server-side id of the video currently loaded in the Cast session (not
@@ -37,6 +39,7 @@ export const castState: CastState = reactive({
   durationSec: 0,
   isMuted: false,
   activeSubtitleIndex: null,
+  burnedSubtitleIndex: null,
   error: null,
   currentVideoId: null,
 });
@@ -182,6 +185,7 @@ export function initializeCast(): Promise<void> {
           castState.durationSec = 0;
           castState.currentVideoId = null;
           castState.activeSubtitleIndex = null;
+          castState.burnedSubtitleIndex = null;
           currentLoad = null;
         }
       }
@@ -318,17 +322,20 @@ export async function ensureCastSession(): Promise<cast.framework.CastSession> {
  * default) picks which embedded audio stream the server bakes into the
  * remux the content URL points at — there's no Cast-side mechanism to
  * switch embedded audio tracks mid-session, so this only takes effect at
- * load time.
+ * load time. `burnSubtitleIndex` (see burnSubtitleIndexFor) likewise picks
+ * the remux with that subtitle track rendered into the picture; its text
+ * track is then left off, so the subtitles don't show twice.
  */
 export async function castVideo(
   serverInfo: ServerInfo,
   video: VideoDTO,
   defaultSubtitleIndex: number | null,
-  audioTrackIndex = 0
+  audioTrackIndex = 0,
+  burnSubtitleIndex: number | null = null
 ): Promise<void> {
   const session = await ensureCastSession();
 
-  const contentUrl = toAbsoluteMediaUrl(serverInfo, videoStreamPath(video.id, { audioTrackIndex }));
+  const contentUrl = toAbsoluteMediaUrl(serverInfo, videoStreamPath(video.id, { audioTrackIndex, burnSubtitleIndex }));
   const mediaInfo = new chrome.cast.media.MediaInfo(contentUrl, video.contentType);
   mediaInfo.streamType = chrome.cast.media.StreamType.BUFFERED;
   mediaInfo.metadata = new chrome.cast.media.GenericMediaMetadata();
@@ -345,7 +352,8 @@ export async function castVideo(
   }
 
   const request = new chrome.cast.media.LoadRequest(mediaInfo);
-  if (defaultSubtitleIndex !== null) {
+  castState.burnedSubtitleIndex = burnSubtitleIndex;
+  if (defaultSubtitleIndex !== null && burnSubtitleIndex === null) {
     request.activeTrackIds = [defaultSubtitleIndex + 1];
     castState.activeSubtitleIndex = defaultSubtitleIndex;
   } else {

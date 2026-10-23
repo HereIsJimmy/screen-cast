@@ -3,6 +3,8 @@ export interface SubtitleTrackDTO {
   language?: string;
   title?: string;
   unsupported: boolean;
+  /** ASS/SSA track: can be burned into the picture with its full styling (drawings, fonts, positions). */
+  burnable: boolean;
 }
 
 export interface AudioTrackDTO {
@@ -23,6 +25,10 @@ export interface VideoDTO {
   needsProcessing: boolean;
   /** True when this video can be streamed to a local <video> element right now, with no wait. */
   browserReady: boolean;
+  /** Same as browserReady, for casting to the TV. */
+  castReady: boolean;
+  /** Marked as watched (60% of it played, on the TV or in a browser). */
+  watched: boolean;
   subtitles: SubtitleTrackDTO[];
   audioTracks: AudioTrackDTO[];
   /** Which entry of audioTracks the server uses when a request doesn't specify one (e.g. prefers a Japanese track for dual-audio releases). */
@@ -69,4 +75,10 @@ export interface SubtitleStyle {
    * other fields it only takes effect the next time the track loads.
    */
   subtitlePositionPercent: number;
+}
+
+/** Server-wide playback preferences (⚙️ Settings → Playback). */
+export interface PlaybackSettings {
+  /** Whether "Burn in subtitles" starts ticked for ASS/SSA tracks (and what the library's prepare buttons use). */
+  burnInByDefault: boolean;
 }

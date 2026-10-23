@@ -1,4 +1,4 @@
-import type { ServerInfo, SubtitleStyle, VideoDTO } from "@/types";
+import type { PlaybackSettings, ServerInfo, SubtitleStyle, VideoDTO } from "@/types";
 
 const API_BASE = "/api";
 
@@ -54,32 +54,57 @@ export function shutdownServerPc(password: string): Promise<{ ok: boolean }> {
   });
 }
 
+interface StreamOptions {
+  forBrowser?: boolean;
+  audioTrackIndex?: number;
+  /** ASS/SSA subtitle track rendered into the picture, or null for none. */
+  burnSubtitleIndex?: number | null;
+}
+
 /**
- * Builds the `?target=browser&audio=N` query string shared by prepareVideo
+ * Which subtitle track to burn into the picture: the selected one, when
+ * burning in is on and it's an ASS/SSA track (VideoDTO subtitles' `burnable`),
+ * otherwise none — other tracks are shown as regular text tracks.
+ */
+export function burnSubtitleIndexFor(video: VideoDTO, subtitleIndex: number | null, burnIn: boolean): number | null {
+  if (!burnIn || subtitleIndex === null) return null;
+  return video.subtitles.some((s) => s.index === subtitleIndex && s.burnable) ? subtitleIndex : null;
+}
+
+/**
+ * Builds the `?target=browser&audio=N&burn=N` query string shared by prepareVideo
  * and videoStreamPath. `audioTrackIndex` is only included when explicitly
  * passed (checked with `!== undefined`, not truthiness — 0 is a valid,
  * meaningful track index): omitting it entirely means "use whichever track
  * the server considers the default" (see VideoDTO.defaultAudioTrackIndex),
  * which is what callers that don't offer an audio-track choice (e.g. the
- * library grid's "prepare ahead" button) rely on.
+ * library grid's "prepare ahead" button) rely on. `burnSubtitleIndex` works
+ * the same way: undefined leaves it to the server (which burns in the
+ * preselected track when it's ASS/SSA), null asks for no burn-in.
  */
-function buildStreamQuery(opts?: { forBrowser?: boolean; audioTrackIndex?: number }): string {
+function buildStreamQuery(opts?: StreamOptions): string {
   const params = new URLSearchParams();
   if (opts?.forBrowser) params.set("target", "browser");
   if (opts?.audioTrackIndex !== undefined) params.set("audio", String(opts.audioTrackIndex));
+  if (opts?.burnSubtitleIndex !== undefined) params.set("burn", opts.burnSubtitleIndex === null ? "none" : String(opts.burnSubtitleIndex));
   const qs = params.toString();
   return qs ? `?${qs}` : "";
 }
 
-export function prepareVideo(
-  id: string,
-  opts?: { forBrowser?: boolean; audioTrackIndex?: number }
-): Promise<{ ready: boolean }> {
+/** Resolves with the updated video (its browserReady/castReady reflect what was just prepared). */
+export function prepareVideo(id: string, opts?: StreamOptions): Promise<{ ready: boolean; video: VideoDTO }> {
   return request(`/videos/${id}/prepare${buildStreamQuery(opts)}`, { method: "POST" });
 }
 
-/** Deletes a video's cached browser remux, undoing prepareVideo({ forBrowser: true }). */
-export function deletePreparedVideo(id: string, opts?: { forBrowser?: boolean }): Promise<{ removed: boolean }> {
+/**
+ * Deletes the cached remux behind a video's default stream for the browser
+ * (or, without forBrowser, for casting), undoing prepareVideo. Resolves with
+ * the updated video: a burned-in remux serves both, so both flags can change.
+ */
+export function deletePreparedVideo(
+  id: string,
+  opts?: { forBrowser?: boolean }
+): Promise<{ removed: boolean; video: VideoDTO }> {
   const suffix = opts?.forBrowser ? "?target=browser" : "";
   return request(`/videos/${id}/prepared${suffix}`, { method: "DELETE" });
 }
@@ -101,7 +126,7 @@ export function toAbsoluteMediaUrl(serverInfo: ServerInfo, path: string): string
  * Chromecast but not in most desktop browsers, so local playback needs a
  * separately-transcoded stream from the one handed to the Cast SDK.
  */
-export function videoStreamPath(id: string, opts?: { forBrowser?: boolean; audioTrackIndex?: number }): string {
+export function videoStreamPath(id: string, opts?: StreamOptions): string {
   return `/videos/${id}/stream${buildStreamQuery(opts)}`;
 }
 
@@ -135,4 +160,35 @@ export function saveSubtitleStyle(style: SubtitleStyle): Promise<SubtitleStyle> 
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(style),
   });
+}
+
+/** Marks a video as watched or not; resolves with the updated video. */
+export function setVideoWatched(id: string, watched: boolean): Promise<VideoDTO> {
+  return request(`/videos/${id}/watched`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ watched }),
+  });
+}
+
+// Cached for the page's lifetime (savePlaybackSettings refreshes it), since
+// every Cast/Play popup and queue step needs it before it can start.
+let playbackSettings: Promise<PlaybackSettings> | null = null;
+
+export function fetchPlaybackSettings(): Promise<PlaybackSettings> {
+  playbackSettings ??= request<PlaybackSettings>("/playback-settings").catch((err) => {
+    playbackSettings = null; // don't cache a failure
+    throw err;
+  });
+  return playbackSettings;
+}
+
+export async function savePlaybackSettings(settings: PlaybackSettings): Promise<PlaybackSettings> {
+  const saved = await request<PlaybackSettings>("/playback-settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  });
+  playbackSettings = Promise.resolve(saved);
+  return saved;
 }

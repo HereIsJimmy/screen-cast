@@ -2,6 +2,8 @@
 
 *This is an English translation — [ir a la versión en español ↓](#en-español)*
 
+# THIS APP IS EXPECTED TO BE RUN IN LOCAL NETWORKS, NOT ONLINE
+
 Web app (Vue 3 + TypeScript) and server (Node + Express + TypeScript) to cast local videos —
 with their embedded subtitle tracks (MKV, etc.) — to a TCL Smart TV running Google TV / Android
 TV, using built-in Chromecast (Google Cast).
@@ -26,7 +28,10 @@ TV, using built-in Chromecast (Google Cast).
 5. Since your subtitles are embedded in the container rather than in separate `.srt` files, the
    server extracts each subtitle track to WebVTT (`.vtt`) with `ffmpeg` the first time it's
    requested, and serves it as a separate text track — so the Cast receiver (or the browser
-   itself) can render it over the video.
+   itself) can render it over the video. ASS/SSA tracks are converted by the server itself 
+   instead of ffmpeg's converter: vector drawings and override tags are dropped, `\h` becomes a space, 
+   and signs/songs/top-of-screen lines keep their position instead of piling up on the dialogue line. 
+   By default, though, ASS tracks are burned into the picture instead (see below), which keeps everything.
 
 ## "Recent videos" filter
 
@@ -65,7 +70,9 @@ each time a subtitle track is requested.
 You can also change the subtitles' **vertical position** (top/center/bottom). This doesn't
 travel through Cast's style API (which has no notion of position) — the server rewrites each
 cue's `line:` setting when serving the `.vtt` file, so unlike the rest of the style it doesn't
-update live: it applies the next time you switch subtitle tracks or cast/play again.
+update live: it applies the next time you switch subtitle tracks or cast/play again. Only regular
+dialogue follows this setting; ASS lines that the subtitle file itself places elsewhere (signs,
+titles, lines at the top) keep their own position.
 
 ## Local playback in the browser
 
@@ -86,17 +93,52 @@ the browser it's transcoded to 8-bit H.264. 10-bit H.264 ("Hi10P") is transcoded
 neither TVs nor browsers can decode it. That transcode takes a couple of minutes for a 24-minute
 episode (roughly 10× real time) while "Preparing video…" is shown.
 
-**Preparing in advance:** since that first transcode can take a while, every thumbnail in the
-library has a button in its top-left corner to kick it off ahead of time, without needing to open
-the "Play" popup — handy for getting several videos ready in advance (e.g. from your phone,
-before a trip). The icon shows that video's status for browser playback:
+**Preparing in advance:** since that first transcode (or burn-in, see below) can take a while,
+every thumbnail in the library has two buttons in its top-left corner to kick it off ahead of
+time, without opening a popup — handy for getting several videos ready in advance (e.g. from your
+phone, before a trip): **▶** prepares it for browser playback and **📡** for casting. Each one
+shows that video's status for its target:
 
-- ⬇️ (active button) — not ready yet; a click starts preparing it.
+- Orange — not ready yet; a click starts preparing it.
 - ⏳ — being prepared right now.
-- ✅ (green check) — already ready to play instantly, no transcoding needed (either because it's
-  already H.264/VP8/VP9, or because it was prepared before and is still cached). Clicking it
-  deletes the cached browser version, if there is one, and reverts back to the "prepare" state —
-  the video's original file and its Chromecast/subtitle/thumbnail caches are left untouched.
+- Green ring — ready to play instantly (either it needs no processing at all, or it was prepared
+  before and is still cached). Clicking it deletes that cached copy, if there is one, and turns
+  the button orange again — the original file and the other caches are left untouched.
+
+Both use the video's default audio track and the burn-in default from Settings. A burned-in copy
+serves both targets, so preparing (or deleting) one turns both buttons green (or orange).
+
+## Burned-in subtitles (ASS/SSA)
+
+A text track can't carry everything an ASS track does (vector drawings, the release's own fonts,
+karaoke, animated signs), so when the selected subtitle track is ASS/SSA, both the Cast and the
+Play popups show a **"Burn in subtitles (full styling)"** checkbox, **on by default** (turn
+"Burn in ASS subtitles by default" off under ⚙️ Settings → Playback to start it unticked instead;
+that setting is shared by every device and also applies to the library's prepare buttons and the
+queue). With it on,
+the server renders that track into the picture with ffmpeg's libass (using the fonts embedded in
+the file) and re-encodes the video to H.264, so it looks exactly like in mpv/VLC.
+
+- It encodes on the GPU (NVIDIA NVENC) when it can: a 24-minute 1080p episode takes about 1.5
+  minutes on an RTX 3070. Without a usable NVIDIA GPU it falls back to libx264 on the CPU, which
+  is much slower. It needs `ALLOW_TRANSCODE=true`.
+- The result is cached per subtitle track (and audio track) and shared by casting and browser
+  playback, so it's only slow the first time. The library's prepare buttons and the queue
+  prepare the burned-in version too, when a video's preselected track is ASS (and the default
+  is on).
+- Burned-in subtitles can't be switched off or restyled mid-playback (the Settings style doesn't
+  apply to them). To change them while casting, stop and cast again; in the browser, changing the
+  track or unticking the checkbox prepares the video again.
+- Other tracks (SRT, etc.) and ASS with the checkbox off are served as WebVTT text tracks, as
+  described above.
+
+## Watched videos
+
+Once 60% of a video has played (on the TV or in a browser), it's marked as **watched**: its card
+in the library turns grey (black-and-white thumbnail, dimmed buttons that still work as usual)
+with a "✓ Watched" badge. The mark is saved on the server (`server/data/watched.json`), so every
+device sees it. To undo it — or to mark a video by hand — use the "✓ Watched" / "Mark as watched"
+button next to the title in the Cast or Play popup.
 
 ## Multiple audio tracks
 
@@ -330,6 +372,7 @@ screen-cast/
 # En español
 
 # Screen Cast
+# ESTA APP ESPERA SER EJECUTADA EN RED LOCAL, NO ONLINE
 
 Web (Vue 3 + TypeScript) y servidor (Node + Express + TypeScript) para castear vídeos locales —
 con sus pistas de subtítulos incrustadas (MKV, etc.) — a una TCL Smart TV con Google TV / Android TV,
@@ -356,7 +399,11 @@ usando Chromecast built-in (Google Cast).
 5. Como tus subtítulos están incrustados en el contenedor y no en archivos `.srt` sueltos, el
    servidor extrae cada pista de subtítulos a WebVTT (`.vtt`) con `ffmpeg` la primera vez que se
    pide, y la sirve como pista de texto aparte — así el receptor de Cast (o el propio navegador)
-   la puede pintar sobre el vídeo.
+   la puede pintar sobre el vídeo. Las pistas ASS/SSA las convierte el propio servidor en lugar 
+   del conversor de ffmpeg: se descartan los dibujos vectoriales y las etiquetas de formato, 
+   `\h` pasa a ser un espacio, y los carteles/canciones/líneas de arriba mantienen su posición 
+   en vez de amontonarse sobre la línea de diálogo. Aun así, por defecto las pistas ASS se incrustan
+   en la imagen (ver más abajo), lo que lo conserva todo.
 
 ## Filtro de "vídeos recientes"
 
@@ -396,7 +443,8 @@ También puedes cambiar la **posición vertical** de los subtítulos (arriba/cen
 viaja por la API de estilo de Cast (que no tiene noción de posición) — el servidor reescribe el
 ajuste `line:` de cada cue al servir el archivo `.vtt`, así que a diferencia del resto del estilo
 no se actualiza en caliente: se aplica la próxima vez que cambias de pista de subtítulos o vuelves
-a castear.
+a castear. Solo el diálogo normal sigue este ajuste; las líneas ASS que el propio archivo coloca en
+otro sitio (carteles, títulos, líneas arriba) mantienen su posición.
 
 ## Reproducción local en el navegador
 
@@ -419,16 +467,55 @@ se transcodifica para ambos, porque ni las TVs ni los navegadores pueden decodif
 transcodificación tarda un par de minutos en un episodio de 24 minutos (unas 10× la velocidad
 real) mientras se muestra "Preparing video…".
 
-**Preparar con antelación:** como esa primera transcodificación puede tardar, cada miniatura de la
-biblioteca tiene un botón en la esquina superior izquierda para lanzarla de antemano, sin necesidad
-de abrir el popup de "Play" — útil para dejar varios vídeos listos con tiempo antes de verlos
-(por ejemplo desde el móvil, antes de un viaje). El icono indica el estado de ese vídeo para
-reproducción en navegador:
+**Preparar con antelación:** como esa primera transcodificación (o la incrustación de subtítulos,
+ver más abajo) puede tardar, cada miniatura de la biblioteca tiene dos botones en la esquina
+superior izquierda para lanzarla de antemano, sin abrir ningún popup — útil para dejar varios
+vídeos listos con tiempo antes de verlos (por ejemplo desde el móvil, antes de un viaje): **▶** lo
+prepara para reproducir en el navegador y **📡** para castear. Cada uno indica el estado de ese
+vídeo para su destino:
 
-- ⬇️ (botón activo) — aún no está listo; un clic empieza a prepararlo.
+- Naranja — aún no está listo; un clic empieza a prepararlo.
 - ⏳ — se está preparando ahora mismo.
-- ✅ (tick verde) — ya está listo para reproducirse al instante, sin transcodificar (porque ya es
-  H.264/VP8/VP9, o porque ya se preparó antes y sigue en caché).
+- Anillo verde — listo para reproducirse al instante (o no necesita ningún procesado, o ya se
+  preparó antes y sigue en caché). Un clic borra esa copia en caché, si la hay, y el botón vuelve a
+  naranja — el archivo original y las demás cachés no se tocan.
+
+Ambos usan la pista de audio por defecto del vídeo y el valor por defecto de incrustación de
+Settings. Una copia con subtítulos incrustados sirve para los dos destinos, así que prepararla (o
+borrarla) pone los dos botones en verde (o en naranja).
+
+## Subtítulos incrustados (ASS/SSA)
+
+Una pista de texto no puede llevar todo lo que lleva una pista ASS (dibujos vectoriales, las
+fuentes propias del release, karaoke, carteles animados), así que cuando la pista de subtítulos
+elegida es ASS/SSA, los popups de Cast y de Play muestran una casilla **"Burn in subtitles (full
+styling)"**, **activada por defecto** (desactiva "Burn in ASS subtitles by default" en ⚙️ Settings →
+Playback para que empiece desmarcada; ese ajuste es común a todos los dispositivos y también
+afecta a los botones de preparar de la biblioteca y a la cola). Con ella activada, el servidor pinta esa pista en la imagen
+con libass de ffmpeg (usando las fuentes incrustadas en el archivo) y recodifica el vídeo a H.264,
+así que se ve exactamente igual que en mpv/VLC.
+
+- Codifica en la GPU (NVIDIA NVENC) cuando puede: un episodio de 24 minutos a 1080p tarda
+  aproximadamente 1,5 minutos en una RTX 3070. Sin una GPU NVIDIA usable recurre a libx264 en la
+  CPU, que es mucho más lento. Necesita `ALLOW_TRANSCODE=true`.
+- El resultado se cachea por pista de subtítulos (y de audio) y lo comparten el casteo y la
+  reproducción en el navegador, así que solo es lento la primera vez. Los botones de preparar de
+  la biblioteca y la cola también preparan la versión incrustada cuando la pista preseleccionada
+  de un vídeo es ASS (y el valor por defecto está activado).
+- Los subtítulos incrustados no se pueden quitar ni cambiar de estilo durante la reproducción (el
+  estilo de Settings no les afecta). Para cambiarlos mientras casteas, para y vuelve a castear; en
+  el navegador, cambiar de pista o desmarcar la casilla vuelve a preparar el vídeo.
+- Las demás pistas (SRT, etc.) y las ASS con la casilla desmarcada se sirven como pistas de texto
+  WebVTT, como se explica arriba.
+
+## Vídeos vistos
+
+Cuando se ha reproducido el 60% de un vídeo (en la TV o en un navegador), se marca como **visto**:
+su tarjeta en la biblioteca se vuelve gris (miniatura en blanco y negro, botones atenuados que
+siguen funcionando igual) con una etiqueta "✓ Watched". La marca se guarda en el servidor
+(`server/data/watched.json`), así que todos los dispositivos la ven. Para quitarla — o para marcar
+un vídeo a mano — usa el botón "✓ Watched" / "Mark as watched" junto al título en el popup de Cast
+o de Play.
 
 ## Pistas de audio múltiples
 

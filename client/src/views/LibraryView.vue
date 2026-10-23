@@ -16,6 +16,7 @@ import ConfirmDialog from "@/components/ConfirmDialog.vue";
 import PlayerView from "@/views/PlayerView.vue";
 import WatchView from "@/views/WatchView.vue";
 import { queuePosition, removeFromQueue, toggleQueued } from "@/services/queue";
+import { isVideoWatched } from "@/services/watched";
 
 const route = useRoute();
 const router = useRouter();
@@ -216,52 +217,51 @@ function formatDuration(sec: number | null): string {
   return h > 0 ? `${h}h ${m}min` : `${m}min`;
 }
 
-// Ids currently being remuxed/transcoded for browser playback ahead of
-// time, via the thumbnail's "prepare" button — so its icon can switch to an
-// hourglass while the request is in flight, without waiting for someone to
-// actually open the Play popup first.
-const preparingVideos = reactive(new Set<string>());
+type PrepareTarget = "browser" | "cast";
 
-async function prepareForBrowser(video: VideoDTO) {
-  if (video.browserReady || preparingVideos.has(video.id)) return;
-  preparingVideos.add(video.id);
-  error.value = null;
-  try {
-    // No audioTrackIndex here on purpose: the grid has no per-video track
-    // picker, so this leaves it to the server's own default
-    // (video.defaultAudioTrackIndex — e.g. Japanese for a dual-audio
-    // release), the same one isBrowserReady/deleteBrowserCache below check
-    // against.
-    await prepareVideo(video.id, { forBrowser: true });
-    // Optimistic update — video.browserReady would otherwise only refresh on
-    // the next /api/library fetch (a manual rescan), so the tick wouldn't
-    // show up until then even though the file is already sitting in cache.
-    video.browserReady = true;
-  } catch (err) {
-    error.value = (err as Error).message;
-  } finally {
-    preparingVideos.delete(video.id);
-  }
+// "{id}:{target}" for every prepare (or un-prepare) request in flight from
+// the thumbnails' prepare buttons, so each button can show an hourglass
+// without waiting for someone to open the Cast/Play popup first.
+const preparing = reactive(new Set<string>());
+
+function isPrepared(video: VideoDTO, target: PrepareTarget): boolean {
+  return target === "browser" ? video.browserReady : video.castReady;
 }
 
-// Ids currently having their cached browser remux deleted, via a click on
-// the ready checkmark — mirrors preparingVideos above.
-const removingBrowserCache = reactive(new Set<string>());
+function prepareButtonTitle(video: VideoDTO, target: PrepareTarget): string {
+  const where = target === "browser" ? "browser playback" : "casting";
+  if (preparing.has(`${video.id}:${target}`)) return `Working on ${where}…`;
+  return isPrepared(video, target)
+    ? `Ready for ${where} — click to delete the cached copy`
+    : `Prepare for ${where}`;
+}
 
-async function removeBrowserCache(video: VideoDTO) {
-  if (removingBrowserCache.has(video.id)) return;
-  removingBrowserCache.add(video.id);
+/**
+ * A thumbnail's prepare button: prepares the video for `target` ahead of
+ * time, or — when it's already prepared — deletes that cached copy. No
+ * audio/subtitle choice here on purpose: the grid has no per-video track
+ * pickers, so this leaves both to the server's defaults (default audio
+ * track, and burning in the preselected ASS subtitles when that's on in
+ * Settings), the same ones the browserReady/castReady flags describe.
+ */
+async function togglePrepared(video: VideoDTO, target: PrepareTarget) {
+  const key = `${video.id}:${target}`;
+  if (preparing.has(key)) return;
+  preparing.add(key);
   error.value = null;
   try {
-    const { removed } = await deletePreparedVideo(video.id, { forBrowser: true });
-    // Nothing to flip back to the "prepare" button for a video that never
-    // needed a cache file in the first place (it plays directly) — the
-    // server reports removed:false and it just stays ready.
-    if (removed) video.browserReady = false;
+    const forBrowser = target === "browser";
+    const { video: updated } = isPrepared(video, target)
+      ? await deletePreparedVideo(video.id, { forBrowser })
+      : await prepareVideo(video.id, { forBrowser });
+    // Both flags, not just this target's: a burned-in remux serves both, so
+    // preparing or deleting it flips the other button too.
+    video.browserReady = updated.browserReady;
+    video.castReady = updated.castReady;
   } catch (err) {
     error.value = (err as Error).message;
   } finally {
-    removingBrowserCache.delete(video.id);
+    preparing.delete(key);
   }
 }
 
@@ -499,7 +499,12 @@ onBeforeUnmount(() => {
           </div>
           <div class="video-title">{{ folder.name }}</div>
         </button>
-        <div v-for="video in visibleVideos" :key="video.id" class="video-card">
+        <div
+          v-for="video in visibleVideos"
+          :key="video.id"
+          class="video-card"
+          :class="{ watched: isVideoWatched(video) }"
+        >
           <div class="video-thumb">
             <img
               v-if="!thumbnailFailed.has(video.id)"
@@ -511,62 +516,31 @@ onBeforeUnmount(() => {
             <div v-else class="video-thumb-placeholder">🎬</div>
             <span v-if="video.durationSec" class="thumb-duration">{{ formatDuration(video.durationSec) }}</span>
             <button
-              v-if="video.browserReady"
-              class="thumb-ready"
+              v-for="target in (['browser', 'cast'] as const)"
+              :key="target"
+              class="thumb-prep"
+              :class="[
+                `thumb-prep-${target}`,
+                preparing.has(`${video.id}:${target}`) ? 'busy' : isPrepared(video, target) ? 'ready' : 'pending',
+              ]"
               type="button"
-              :disabled="removingBrowserCache.has(video.id)"
-              :title="
-                removingBrowserCache.has(video.id)
-                  ? 'Deleting cached copy…'
-                  : 'Ready to play in the browser — click to delete the cached copy'
-              "
-              :aria-label="
-                removingBrowserCache.has(video.id)
-                  ? 'Deleting cached copy'
-                  : 'Ready to play in the browser, delete cached copy'
-              "
-              @click.stop="removeBrowserCache(video)"
+              :disabled="preparing.has(`${video.id}:${target}`)"
+              :title="prepareButtonTitle(video, target)"
+              :aria-label="prepareButtonTitle(video, target)"
+              @click.stop="togglePrepared(video, target)"
             >
+              <span v-if="preparing.has(`${video.id}:${target}`)" class="thumb-prep-emoji" aria-hidden="true">⏳</span>
               <svg
+                v-else-if="target === 'browser'"
                 viewBox="0 0 24 24"
-                width="15"
-                height="15"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
+                width="14"
+                height="14"
+                fill="currentColor"
                 aria-hidden="true"
               >
-                <polyline points="20 6 9 17 4 12"></polyline>
+                <polygon points="7 4 20 12 7 20 7 4"></polygon>
               </svg>
-            </button>
-            <button
-              v-else
-              class="thumb-prepare"
-              type="button"
-              :disabled="preparingVideos.has(video.id)"
-              :title="preparingVideos.has(video.id) ? 'Preparing for the browser…' : 'Prepare for browser playback'"
-              :aria-label="preparingVideos.has(video.id) ? 'Preparing for the browser' : 'Prepare for browser playback'"
-              @click.stop="prepareForBrowser(video)"
-            >
-              <span v-if="preparingVideos.has(video.id)" class="thumb-prepare-hourglass" aria-hidden="true">⏳</span>
-              <svg
-                v-else
-                viewBox="0 0 24 24"
-                width="15"
-                height="15"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="7 10 12 15 17 10"></polyline>
-                <line x1="12" y1="15" x2="12" y2="3"></line>
-              </svg>
+              <span v-else class="thumb-prep-emoji" aria-hidden="true">📡</span>
             </button>
             <button
               class="thumb-queue"
@@ -623,6 +597,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="video-title">{{ video.title }}</div>
           <div class="video-meta">
+            <span v-if="isVideoWatched(video)" class="badge">✓ Watched</span>
             <span v-if="video.subtitles.length === 0" class="badge danger">No subtitles</span>
             <span v-if="video.needsProcessing" class="badge warn" title="It will be repackaged before casting">
               prepared when cast

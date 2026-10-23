@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { deleteVideo, didLastScanIncludeOld, getEntry, listEntries, scanLibrary, toDTO } from "../lib/library.js";
+import { setWatched } from "../lib/watched.js";
 
 export const libraryRouter = Router();
 
@@ -34,6 +35,25 @@ libraryRouter.delete("/videos/:id", async (req, res) => {
   try {
     await deleteVideo(req.params.id);
     res.json({ deleted: true });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+/** Marks a video as watched or not: body { watched: boolean }. Returns the updated video. */
+libraryRouter.put("/videos/:id/watched", async (req, res) => {
+  const entry = getEntry(req.params.id);
+  if (!entry) {
+    res.status(404).json({ error: "Video not found" });
+    return;
+  }
+  if (typeof req.body?.watched !== "boolean") {
+    res.status(400).json({ error: "Expected { watched: boolean }" });
+    return;
+  }
+  try {
+    await setWatched(entry.id, req.body.watched);
+    res.json(toDTO(entry));
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }

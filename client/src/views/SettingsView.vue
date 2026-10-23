@@ -1,9 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
-import { fetchServerInfo, fetchSubtitleStyle, saveSubtitleStyle, shutdownServerPc } from "@/services/api";
+import {
+  fetchPlaybackSettings,
+  fetchServerInfo,
+  fetchSubtitleStyle,
+  savePlaybackSettings,
+  saveSubtitleStyle,
+  shutdownServerPc,
+} from "@/services/api";
 import { applySubtitleStyleLive, castState } from "@/services/cast";
-import type { ServerInfo, SubtitleStyle } from "@/types";
+import type { PlaybackSettings, ServerInfo, SubtitleStyle } from "@/types";
 
 const router = useRouter();
 
@@ -88,13 +95,41 @@ function setAlpha(field: ColorField, event: Event) {
   style[field] = joinRgba(hexOf(style[field]), alpha);
 }
 
+// Playback preferences save on their own, as soon as they change — unlike
+// the subtitle style above, there's nothing to preview first.
+const playback = ref<PlaybackSettings | null>(null);
+const savingPlayback = ref(false);
+const playbackSaved = ref(false);
+
+async function onBurnInDefaultChange(event: Event) {
+  if (!playback.value) return;
+  const burnInByDefault = (event.target as HTMLInputElement).checked;
+  savingPlayback.value = true;
+  playbackSaved.value = false;
+  error.value = null;
+  try {
+    playback.value = await savePlaybackSettings({ ...playback.value, burnInByDefault });
+    playbackSaved.value = true;
+    setTimeout(() => (playbackSaved.value = false), 2000);
+  } catch (err) {
+    error.value = (err as Error).message;
+  } finally {
+    savingPlayback.value = false;
+  }
+}
+
 async function load() {
   loading.value = true;
   error.value = null;
   try {
-    const [current, info] = await Promise.all([fetchSubtitleStyle(), fetchServerInfo()]);
+    const [current, info, playbackSettings] = await Promise.all([
+      fetchSubtitleStyle(),
+      fetchServerInfo(),
+      fetchPlaybackSettings(),
+    ]);
     Object.assign(style, current);
     serverInfo.value = info;
+    playback.value = { ...playbackSettings };
   } catch (err) {
     error.value = (err as Error).message;
   } finally {
@@ -338,6 +373,29 @@ onMounted(load);
           TV as soon as you save; otherwise it applies the next time you click "Cast". Vertical position is the
           exception: since it's baked into the subtitle file itself, it doesn't update live — it applies the next
           time you switch subtitle tracks or cast again.
+        </p>
+      </div>
+
+      <div v-if="playback" class="settings-section">
+        <h2 class="settings-section-title">Playback</h2>
+
+        <div class="controls-row">
+          <label class="burn-toggle">
+            <input
+              type="checkbox"
+              :checked="playback.burnInByDefault"
+              :disabled="savingPlayback"
+              @change="onBurnInDefaultChange"
+            />
+            Burn in ASS subtitles by default
+          </label>
+          <span v-if="playbackSaved" class="badge" style="background: #1f3a24; color: #7fd18a">Saved ✓</span>
+        </div>
+
+        <p class="settings-hint">
+          Whether "Burn in subtitles (full styling)" starts ticked in the Cast and Play popups when the subtitle track
+          is ASS/SSA. You can still change it per video there. The library's prepare buttons and the queue also follow
+          this setting.
         </p>
       </div>
 

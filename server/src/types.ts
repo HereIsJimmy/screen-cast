@@ -64,11 +64,17 @@ export interface VideoDTO {
   needsProcessing: boolean;
   /** True when this video can be streamed to a local <video> element right now, with no wait. */
   browserReady: boolean;
+  /** Same as browserReady, for casting: the default cast stream needs no preparing (or is already cached). */
+  castReady: boolean;
+  /** Marked as watched (60% of it played, see lib/watched.ts). */
+  watched: boolean;
   subtitles: {
     index: number;
     language?: string;
     title?: string;
     unsupported: boolean;
+    /** ASS/SSA track that can be burned into the picture with full styling (see getPlayablePath). */
+    burnable: boolean;
   }[];
   audioTracks: {
     index: number;
@@ -137,4 +143,14 @@ export interface SubtitleStyle {
    * only takes effect the next time the track is (re)loaded, not live.
    */
   subtitlePositionPercent: number;
+}
+
+/** Server-wide playback preferences, saved in data/playback-settings.json (see lib/playbackSettings.ts). */
+export interface PlaybackSettings {
+  /**
+   * Whether the "Burn in subtitles" checkbox starts ticked for ASS/SSA
+   * tracks, and whether requests without ?burn burn the preselected ASS
+   * track in (see defaultBurnSubtitleIndex in mediaCache.ts).
+   */
+  burnInByDefault: boolean;
 }

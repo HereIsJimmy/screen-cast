@@ -4,7 +4,8 @@ import path from "node:path";
 import { config } from "../config.js";
 import type { AudioTrackInfo, FfprobeStream, SubtitleTrackInfo, VideoEntry, VideoDTO } from "../types.js";
 import { probeFile } from "./ffprobe.js";
-import { deleteCacheForId, isBrowserReady, pruneOrphanedCache } from "./mediaCache.js";
+import { deleteCacheForId, isBurnableSubtitle, isPrepared, pruneOrphanedCache } from "./mediaCache.js";
+import { isWatched, setWatched } from "./watched.js";
 
 const UNSUPPORTED_SUBTITLE_CODECS = new Set([
   "hdmv_pgs_subtitle",
@@ -58,7 +59,7 @@ function isSdhSubtitle(track: SubtitleTrackInfo): boolean {
  * (dual-audio releases often list that one first). Falls back to the first
  * usable track, or null when there's none. Mirrors pickDefaultAudioTrackIndex.
  */
-function pickDefaultSubtitleIndex(tracks: SubtitleTrackInfo[]): number | null {
+export function pickDefaultSubtitleIndex(tracks: SubtitleTrackInfo[]): number | null {
   const usable = tracks.filter((t) => !t.unsupported);
   const english = usable.length > 1 ? usable.filter(isEnglishTrack) : [];
   const best =
@@ -485,6 +486,7 @@ export async function deleteVideo(id: string): Promise<void> {
   entries.delete(id);
   await saveIndex();
   await deleteCacheForId(id);
+  await setWatched(id, false);
 }
 
 /**
@@ -510,12 +512,15 @@ export function toDTO(entry: VideoEntry): VideoDTO {
     audioCodec: entry.audioCodec,
     contentType: getStreamContentType(entry),
     needsProcessing: !entry.directPlayCompatible,
-    browserReady: isBrowserReady(entry),
+    browserReady: isPrepared(entry, "browser"),
+    castReady: isPrepared(entry, "cast"),
+    watched: isWatched(entry.id),
     subtitles: entry.subtitles.map((s) => ({
       index: s.index,
       language: s.language,
       title: s.title,
       unsupported: s.unsupported,
+      burnable: isBurnableSubtitle(entry, s.index),
     })),
     audioTracks: entry.audioTracks.map((a) => ({
       index: a.index,

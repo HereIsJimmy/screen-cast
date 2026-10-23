@@ -1,10 +1,15 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { config } from "../config.js";
-import { getStreamContentType } from "./library.js";
+import { getStreamContentType, pickDefaultSubtitleIndex } from "./library.js";
+import { assToVtt } from "./assToVtt.js";
+import { getPlaybackSettings } from "./playbackSettings.js";
 import type { VideoEntry } from "../types.js";
+
+const execFileAsync = promisify(execFile);
 
 function cacheKey(entry: VideoEntry): string {
   return `${entry.id}-${Math.round(entry.mtimeMs)}-${entry.sizeBytes}`;
@@ -66,47 +71,82 @@ function defaultBrowserCacheSuffix(entry: VideoEntry): string {
   return entry.defaultAudioTrackIndex === 0 ? "" : `-a${entry.defaultAudioTrackIndex}`;
 }
 
-/**
- * True when a video can be streamed to a local <video> element right now,
- * with no wait: either it doesn't need any processing for the browser at
- * all (isBrowserDirectPlayable — only possible when the default audio
- * track is literally the file's first one, since serving the untouched
- * file always plays that one), or a previous prepare/play already left its
- * browser-targeted remux/transcode for the default audio track sitting in
- * the cache. This is a plain disk check — it never runs ffmpeg — so it's
- * cheap enough to call for every video when building the library listing
- * (see library.ts toDTO), which is how the client knows to show a ready
- * checkmark instead of the "prepare" button without having to ask
- * separately per video.
- */
-export function isBrowserReady(entry: VideoEntry): boolean {
-  if (entry.defaultAudioTrackIndex === 0 && isBrowserDirectPlayable(entry)) return true;
-  const cachedPath = path.join(config.cacheDir, `${cacheKey(entry)}-browser${defaultBrowserCacheSuffix(entry)}.mp4`);
-  return existsSync(cachedPath);
+/** True for an ASS/SSA subtitle track, the only kind that can be burned in (see getPlayablePath). */
+export function isBurnableSubtitle(entry: VideoEntry, subtitleIndex: number): boolean {
+  const track = entry.subtitles.find((s) => s.index === subtitleIndex);
+  const codec = track?.codec.toLowerCase();
+  return !!track && !track.unsupported && (codec === "ass" || codec === "ssa");
 }
 
 /**
- * Removes just the cached browser remux/transcode for a video's default
- * audio track (the file getPlayablePath(entry, "browser") produces and
- * reuses when no specific track is requested), leaving its Chromecast
- * remux, subtitles, thumbnail, and any other audio-track-specific browser
- * remux alone. Used by the library grid's ready checkmark: clicking it
- * un-prepares the video — handy to reclaim disk space, or to force a fresh
- * transcode later (e.g. after changing something upstream). A no-op for a
- * video that never needed a cache file to begin with
- * (isBrowserDirectPlayable) — there's nothing on disk to remove, so it
- * stays ready either way.
+ * Subtitle track burned in when a request doesn't say (no ?burn): the
+ * preselected track (pickDefaultSubtitleIndex) if it's ASS/SSA and burning
+ * in is on by default (PlaybackSettings.burnInByDefault) — otherwise none.
  */
-export async function deleteBrowserCache(entry: VideoEntry): Promise<{ removed: boolean }> {
-  const cachedPath = path.join(config.cacheDir, `${cacheKey(entry)}-browser${defaultBrowserCacheSuffix(entry)}.mp4`);
-  if (!existsSync(cachedPath)) return { removed: false };
+export function defaultBurnSubtitleIndex(entry: VideoEntry): number | null {
+  if (!getPlaybackSettings().burnInByDefault) return null;
+  const index = pickDefaultSubtitleIndex(entry.subtitles);
+  return index !== null && isBurnableSubtitle(entry, index) ? index : null;
+}
+
+/** Cache-file suffix of a burned-in remux. Shared by both targets: its output plays on either. */
+function burnCacheSuffix(subtitleIndex: number, audioTrackIndex: number): string {
+  return `-burn${subtitleIndex}${audioTrackIndex === 0 ? "" : `-a${audioTrackIndex}`}`;
+}
+
+/**
+ * The cache file getPlayablePath(entry, target) produces/reuses for a
+ * request with no ?audio and no ?burn (the server's defaults, which is what
+ * the library grid's prepare buttons ask for), or null when that request is
+ * served straight from the original file and needs no cache file at all.
+ */
+function defaultCachePath(entry: VideoEntry, target: PlayTarget): string | null {
+  const burnIndex = defaultBurnSubtitleIndex(entry);
+  let suffix: string;
+  if (burnIndex !== null) {
+    suffix = burnCacheSuffix(burnIndex, entry.defaultAudioTrackIndex);
+  } else if (target === "browser") {
+    if (entry.defaultAudioTrackIndex === 0 && isBrowserDirectPlayable(entry)) return null;
+    suffix = `-browser${defaultBrowserCacheSuffix(entry)}`;
+  } else {
+    if (entry.defaultAudioTrackIndex === 0 && entry.directPlayCompatible) return null;
+    suffix = defaultBrowserCacheSuffix(entry); // the Chromecast remux has no "-browser" part
+  }
+  return path.join(config.cacheDir, `${cacheKey(entry)}${suffix}.mp4`);
+}
+
+/**
+ * True when a video can be played on `target` right now, with no wait:
+ * either its default stream needs no processing at all, or a previous
+ * prepare/play already left it in the cache. This is a plain disk check —
+ * it never runs ffmpeg — so it's cheap enough to call for every video when
+ * building the library listing (see library.ts toDTO), which is how the
+ * client knows how to draw each thumbnail's prepare buttons without asking
+ * separately per video.
+ */
+export function isPrepared(entry: VideoEntry, target: PlayTarget): boolean {
+  const cachedPath = defaultCachePath(entry, target);
+  return cachedPath === null || existsSync(cachedPath);
+}
+
+/**
+ * Removes just the cached file behind isPrepared(entry, target), leaving
+ * every other cache file alone. Used by the library grid's prepare buttons:
+ * clicking a prepared one un-prepares the video — handy to reclaim disk
+ * space, or to force a fresh transcode later. A burned-in remux is shared by
+ * both targets (see getPlayablePath), so removing it un-prepares both. A
+ * no-op for a video that never needed a cache file (it stays ready).
+ */
+export async function deletePreparedCache(entry: VideoEntry, target: PlayTarget): Promise<{ removed: boolean }> {
+  const cachedPath = defaultCachePath(entry, target);
+  if (cachedPath === null || !existsSync(cachedPath)) return { removed: false };
   await fs.rm(cachedPath, { force: true });
   return { removed: true };
 }
 
-function runFfmpeg(args: string[]): Promise<void> {
+function runFfmpeg(args: string[], opts?: { cwd?: string }): Promise<void> {
   return new Promise((resolve, reject) => {
-    const proc = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
+    const proc = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"], cwd: opts?.cwd });
     let stderr = "";
     proc.stderr.on("data", (chunk) => {
       stderr += chunk.toString();
@@ -264,6 +304,8 @@ async function getCachedRemux(
     targetLabel: string;
     audioTrackIndex: number;
     audioCodecLabel: string;
+    /** ASS/SSA subtitle track to render into the picture (forces a video re-encode). */
+    burnSubtitleIndex?: number;
   }
 ): Promise<{ path: string; contentType: string }> {
   await ensureCacheDir();
@@ -273,6 +315,9 @@ async function getCachedRemux(
     return { path: outputPath, contentType: "video/mp4" };
   }
 
+  if (opts.burnSubtitleIndex !== undefined && !config.allowTranscode) {
+    throw new Error("Burning in subtitles re-encodes the video, and ALLOW_TRANSCODE is off.");
+  }
   if ((!opts.videoCopyOk || !opts.audioCopyOk) && !config.allowTranscode) {
     throw new Error(
       `"${entry.relativePath}" uses codecs not supported by ${opts.targetLabel} ` +
@@ -299,6 +344,17 @@ async function getCachedRemux(
         // Chromecast nor browsers can decode either.
         ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p"];
     const audioArgs = opts.audioCopyOk ? ["-c:a", "copy"] : ["-c:a", "aac", "-b:a", "192k"];
+
+    if (opts.burnSubtitleIndex !== undefined) {
+      try {
+        await burnSubtitles(entry, opts.burnSubtitleIndex, opts.audioTrackIndex, audioArgs, tmpPath);
+      } catch (err) {
+        await fs.rm(tmpPath, { force: true });
+        throw err;
+      }
+      await fs.rename(tmpPath, outputPath);
+      return outputPath;
+    }
 
     try {
       await runFfmpeg([
@@ -332,6 +388,114 @@ async function getCachedRemux(
   return { path: outputPath, contentType: "video/mp4" };
 }
 
+// Set once NVENC fails (no NVIDIA GPU, or a driver too old for this
+// ffmpeg), so later burn-ins go straight to libx264 instead of failing first.
+let nvencUnavailable = false;
+
+/**
+ * Re-encodes `entry` to H.264 with one ASS/SSA subtitle track rendered into
+ * the picture by libass — drawings, fonts, positions, karaoke and all, which
+ * a WebVTT text track can't carry (see assToVtt.ts). The track and the
+ * file's embedded fonts are extracted into a scratch folder first and the
+ * filter is given plain relative names from there: putting the original
+ * path inside "-vf" would need filtergraph escaping for every ":", "\",
+ * "[", "]", "," and "'" that Windows paths and release names are full of.
+ * Encodes on the GPU (NVENC) when it can, falling back to libx264.
+ */
+async function burnSubtitles(
+  entry: VideoEntry,
+  subtitleIndex: number,
+  audioTrackIndex: number,
+  audioArgs: string[],
+  outputPath: string
+): Promise<void> {
+  const workDir = outputPath.replace(/\.mp4$/, ".work");
+  await fs.rm(workDir, { recursive: true, force: true });
+  await fs.mkdir(path.join(workDir, "fonts"), { recursive: true });
+
+  try {
+    await runFfmpeg(["-y", "-i", entry.absolutePath, "-map", `0:s:${subtitleIndex}`, "-c:s", "copy", "-f", "ass", "sub.ass"], {
+      cwd: workDir,
+    });
+    try {
+      // Attachments are fonts, in practice. Each is written under a name of
+      // our own: ffmpeg refuses to dump one whose stored filename it deems
+      // "unsafe" (e.g. one with spaces), failing the whole dump. libass
+      // identifies fonts by their contents, so the name doesn't matter.
+      const { stdout } = await execFileAsync("ffprobe", [
+        "-v",
+        "error",
+        "-select_streams",
+        "t",
+        "-show_entries",
+        "stream_tags=filename",
+        "-of",
+        "json",
+        entry.absolutePath,
+      ]);
+      const attachments: { tags?: { filename?: string } }[] = JSON.parse(stdout).streams ?? [];
+      const dumpArgs = attachments.flatMap((a, i) => {
+        const ext = path.extname(a.tags?.filename ?? "").toLowerCase();
+        return [`-dump_attachment:t:${i}`, `font${i}${/^\.[a-z0-9]{1,5}$/.test(ext) ? ext : ".ttf"}`];
+      });
+      if (dumpArgs.length) {
+        await runFfmpeg(["-y", ...dumpArgs, "-i", entry.absolutePath, "-t", "0", "-f", "null", "-"], {
+          cwd: path.join(workDir, "fonts"),
+        });
+      }
+    } catch (err) {
+      console.warn(`[burn] Couldn't extract the fonts of ${entry.relativePath}, using system fonts:`, (err as Error).message);
+    }
+
+    const encode = (gpu: boolean) =>
+      runFfmpeg(
+        [
+          "-y",
+          // Decoding on the GPU too roughly doubles throughput; frames come
+          // back to system memory for libass since no output format is forced.
+          ...(gpu ? ["-hwaccel", "cuda"] : []),
+          "-i",
+          entry.absolutePath,
+          "-map",
+          "0:v:0",
+          "-map",
+          `0:a:${audioTrackIndex}?`,
+          // format=yuv420p: 8-bit output even from 10-bit sources (see getCachedRemux).
+          "-vf",
+          "subtitles=f=sub.ass:fontsdir=fonts,format=yuv420p",
+          ...(gpu
+            ? ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", "21", "-b:v", "0", "-profile:v", "high"]
+            : ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"]),
+          ...audioArgs,
+          "-map_chapters",
+          "-1",
+          "-movflags",
+          "+faststart",
+          "-f",
+          "mp4",
+          outputPath,
+        ],
+        { cwd: workDir }
+      );
+
+    const started = Date.now();
+    if (!nvencUnavailable) {
+      try {
+        await encode(true);
+        console.log(`[burn] ${entry.relativePath}: done on the GPU in ${Math.round((Date.now() - started) / 1000)}s`);
+        return;
+      } catch (err) {
+        nvencUnavailable = true;
+        console.warn("[burn] NVENC failed, using libx264 (CPU, much slower) from now on:", (err as Error).message.slice(-500));
+      }
+    }
+    await encode(false);
+    console.log(`[burn] ${entry.relativePath}: done on the CPU in ${Math.round((Date.now() - started) / 1000)}s`);
+  } finally {
+    await fs.rm(workDir, { recursive: true, force: true });
+  }
+}
+
 /**
  * Returns the absolute path of the file that should be streamed for
  * playback: the original file when it's already compatible with the given
@@ -340,12 +504,30 @@ async function getCachedRemux(
  * on disk indefinitely. Chromecast and browser playback are kept as
  * separate cache entries because a codec that's fine for one (HEVC on
  * Chromecast) can be unplayable on the other (HEVC in a desktop <video>).
+ *
+ * `burnSubtitleIndex` (an ASS/SSA track, see isBurnableSubtitle) renders
+ * that track into the picture. That output is 8-bit H.264, which both
+ * targets play, so it's one cache file shared by the two.
  */
 export async function getPlayablePath(
   entry: VideoEntry,
   target: PlayTarget = "cast",
-  audioTrackIndex = 0
+  audioTrackIndex = 0,
+  burnSubtitleIndex: number | null = null
 ): Promise<{ path: string; contentType: string }> {
+  if (burnSubtitleIndex !== null) {
+    const audioCodec = audioTrackIndex === 0 ? entry.audioCodec : audioTrackCodec(entry, audioTrackIndex);
+    return getCachedRemux(entry, {
+      suffix: burnCacheSuffix(burnSubtitleIndex, audioTrackIndex),
+      videoCopyOk: false,
+      audioCopyOk: audioCodec ? AUDIO_COPY_CODECS.has(audioCodec.toLowerCase()) : true,
+      targetLabel: "burned-in subtitles",
+      audioTrackIndex,
+      audioCodecLabel: audioCodec ?? "?",
+      burnSubtitleIndex,
+    });
+  }
+
   // Direct-play (serving the original file untouched) only works for the
   // default audio track — anything else always needs a remux with that
   // track explicitly mapped in, even when the file would otherwise qualify.
@@ -399,12 +581,29 @@ export async function getPlayablePath(
  */
 export async function getSubtitleVttPath(entry: VideoEntry, subtitleIndex: number): Promise<string> {
   await ensureCacheDir();
-  const outputPath = path.join(config.cacheDir, `${cacheKey(entry)}-sub${subtitleIndex}.vtt`);
+  const codec = entry.subtitles.find((s) => s.index === subtitleIndex)?.codec.toLowerCase();
+  // ASS/SSA goes through our own converter (see assToVtt.ts) instead of
+  // ffmpeg's webvtt encoder. Its cache file gets its own "-ass" name so
+  // tracks converted the old way are never reused.
+  const isAss = codec === "ass" || codec === "ssa";
+  const suffix = isAss ? `-sub${subtitleIndex}-ass` : `-sub${subtitleIndex}`;
+  const outputPath = path.join(config.cacheDir, `${cacheKey(entry)}${suffix}.vtt`);
 
   if (existsSync(outputPath)) return outputPath;
 
   return withDedupe(outputPath, async () => {
-    const tmpPath = path.join(config.cacheDir, `${cacheKey(entry)}-sub${subtitleIndex}.tmp.vtt`);
+    const tmpPath = path.join(config.cacheDir, `${cacheKey(entry)}${suffix}.tmp.vtt`);
+    if (isAss) {
+      const tmpAssPath = path.join(config.cacheDir, `${cacheKey(entry)}${suffix}.tmp.ass`);
+      try {
+        await runFfmpeg(["-y", "-i", entry.absolutePath, "-map", `0:s:${subtitleIndex}`, "-c:s", "copy", "-f", "ass", tmpAssPath]);
+        await fs.writeFile(tmpPath, assToVtt(await fs.readFile(tmpAssPath, "utf-8")), "utf-8");
+      } finally {
+        await fs.rm(tmpAssPath, { force: true });
+      }
+      await fs.rename(tmpPath, outputPath);
+      return outputPath;
+    }
     await runFfmpeg([
       "-y",
       "-i",

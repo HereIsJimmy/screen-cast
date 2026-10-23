@@ -14,6 +14,7 @@ import { libraryRouter } from "./routes/library.js";
 import { streamRouter } from "./routes/stream.js";
 import { serverInfoRouter } from "./routes/serverInfo.js";
 import { subtitleStyleRouter } from "./routes/subtitleStyle.js";
+import { playbackSettingsRouter } from "./routes/playbackSettings.js";
 import { systemRouter } from "./routes/system.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -65,6 +66,7 @@ async function main() {
   app.use("/api", streamRouter);
   app.use("/api", serverInfoRouter);
   app.use("/api", subtitleStyleRouter);
+  app.use("/api", playbackSettingsRouter);
   app.use("/api", systemRouter);
 
   // In production, serve the built Vue app from the same server so there's

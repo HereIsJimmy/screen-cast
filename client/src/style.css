@@ -9,6 +9,8 @@
   --accent-hover: #6ea0ff;
   --danger: #ff6b6b;
   --warn: #e0a94f;
+  /* Prepare buttons on thumbnails that still need preparing. */
+  --pending: #f08c2e;
   --success: #4caf50;
   --radius: 10px;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -253,36 +255,13 @@ button {
   line-height: 1.3;
 }
 
-.thumb-ready {
+/* Top-left prepare buttons on a thumbnail: ▶ (browser playback) and 📡
+   (casting). Orange while that target still needs preparing; once it's
+   ready, a green ring, and hovering hints that a click deletes the cached
+   copy. */
+.thumb-prep {
   position: absolute;
   top: 6px;
-  left: 6px;
-  width: 28px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  border: none;
-  background: rgba(0, 0, 0, 0.6);
-  color: var(--success);
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.thumb-ready:hover:not(:disabled) {
-  background: var(--danger);
-  color: #fff;
-}
-
-.thumb-ready:disabled {
-  cursor: default;
-}
-
-.thumb-prepare {
-  position: absolute;
-  top: 6px;
-  left: 6px;
   width: 28px;
   height: 28px;
   display: inline-flex;
@@ -293,19 +272,43 @@ button {
   background: rgba(0, 0, 0, 0.6);
   color: #fff;
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition: background 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
 }
 
-.thumb-prepare:hover:not(:disabled) {
+.thumb-prep-browser {
+  left: 6px;
+}
+
+.thumb-prep-cast {
+  left: 40px;
+}
+
+.thumb-prep.pending,
+.thumb-prep.busy {
+  background: var(--pending);
+}
+
+.thumb-prep.pending:hover {
   background: var(--accent);
 }
 
-.thumb-prepare:disabled {
+.thumb-prep.ready {
+  color: var(--success);
+  box-shadow: inset 0 0 0 2px var(--success);
+}
+
+.thumb-prep.ready:hover {
+  background: var(--danger);
+  color: #fff;
+  box-shadow: none;
+}
+
+.thumb-prep:disabled {
   cursor: default;
 }
 
-.thumb-prepare-hourglass {
-  font-size: 14px;
+.thumb-prep-emoji {
+  font-size: 13px;
   line-height: 1;
 }
 
@@ -370,6 +373,63 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* A watched video (60% of it played): greyed out, but every button still works. */
+.video-card.watched .video-thumb img {
+  filter: grayscale(1);
+}
+
+.video-card.watched .video-thumb button,
+.video-card.watched .video-actions .btn {
+  filter: grayscale(1);
+  opacity: 0.7;
+}
+
+.video-card.watched .video-thumb button:hover,
+.video-card.watched .video-actions .btn:hover {
+  opacity: 1;
+}
+
+/* "✓ Watched" / "Mark as watched" in the Cast/Play popups' title row. */
+.watched-toggle {
+  flex-shrink: 0;
+  border: 1px solid #3a3f4b;
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.watched-toggle:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.watched-toggle.on {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+/* "Burn in subtitles" checkbox in the Cast/Play popups. */
+.burn-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.burn-toggle input:disabled {
+  cursor: not-allowed;
+}
+
+.hint {
+  color: var(--text-dim);
+  font-size: 0.85rem;
 }
 
 .video-thumb img {
